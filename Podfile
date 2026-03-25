@@ -27,13 +27,9 @@ target 'ClashFX' do
   pod 'RxCocoa', '~> 6.0'
   pod 'CocoaLumberjack/Swift', '~> 3.8.0'
   pod 'Starscream','3.1.1'
-  pod 'AppCenter/Analytics'
-  pod 'AppCenter/Crashes'
-  pod 'Sparkle','~>2.0'
   pod "FlexibleDiff"
   pod 'GzipSwift'
   pod 'Yams', '~> 5.0'
   pod 'SwiftLint'
   pod 'SwiftFormat/CLI', '~> 0.49'
 end
-

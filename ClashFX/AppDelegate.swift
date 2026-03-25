@@ -7,9 +7,6 @@
 //
 
 import Alamofire
-import AppCenter
-import AppCenterAnalytics
-import AppCenterCrashes
 import Cocoa
 import CocoaLumberjack
 import LetsMove
@@ -109,9 +106,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
         setupLanguageMenu()
         setupConfigEditorMenuItem()
-        // 启用自动更新检查（使用fork项目的GitHub Pages）
-        AutoUpgradeManager.shared.setup()
-        AutoUpgradeManager.shared.setupCheckForUpdatesMenuItem(checkForUpdateMenuItem)
+        checkForUpdateMenuItem.isHidden = true
+        checkForUpdateMenuItem.isEnabled = false
         // install proxy helper
         _ = ClashResourceManager.check()
         PrivilegedHelperManager.shared.checkInstall()
@@ -1224,17 +1220,7 @@ extension AppDelegate {
 
 extension AppDelegate {
     func registCrashLogger() {
-        #if DEBUG
-            return
-        #else
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                AppCenter.start(withAppSecret: "dce6e9a3-b6e3-4fd2-9f2d-35c767a99663", services: [
-                    Analytics.self,
-                    Crashes.self
-                ])
-            }
-
-        #endif
+        return
     }
 
     func failLaunchProtect() {
