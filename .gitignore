@@ -18,6 +18,8 @@ ClashFX/goClash/mihomo_core
 fastlane/report.xml
 ClashFX/Resources/Country.mmdb.gz
 .bundle/config
+.bundle_home/
+vendor/bundle/
 *.app/**
 ClashFX.app.dSYM.zip
 build_derived_data

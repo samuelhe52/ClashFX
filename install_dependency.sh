@@ -2,6 +2,11 @@
 set -e
 echo "Build Clash core"
 
+# Keep gem installs inside the repo instead of the system Ruby directories.
+export BUNDLE_PATH="${PWD}/vendor/bundle"
+export BUNDLE_DISABLE_SHARED_GEMS=true
+export BUNDLE_USER_HOME="${PWD}/.bundle_home"
+
 cd ClashFX/goClash
 python3 build_clash_universal.py
 cd ../..
@@ -34,6 +39,6 @@ fi
 
 # Fix hardcoded API URL in dashboard to auto-detect from window.location
 if [ -f "dashboard/index.html" ]; then
-    sed -i '' 's|<div id="app" data-base-url="http://127.0.0.1:9090"></div>|<div id="app"></div>\n    <script>\n      // Auto-detect API URL from current page location\n      const appDiv = document.getElementById('\''app'\'');\n      const baseUrl = window.location.origin;\n      appDiv.setAttribute('\''data-base-url'\'', baseUrl);\n    </script>\n|' dashboard/index.html
+    perl -0pi -e 's|<div id="app" data-base-url="http://127.0.0.1:9090"></div>|<div id="app"></div>\n    <script>\n      // Auto-detect API URL from current page location\n      const appDiv = document.getElementById('\''app'\'');\n      const baseUrl = window.location.origin;\n      appDiv.setAttribute('\''data-base-url'\'', baseUrl);\n    </script>\n|g' dashboard/index.html
 fi
 cd ../..
