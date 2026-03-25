@@ -2,10 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>ClashFX uses location info to detect your current WiFi network SSID name and provide the auto suspend services.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>ClashFX uses location info to detect your current WiFi network SSID name and provide the auto suspend services.</string>
 	<key>BETA</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>
@@ -95,6 +91,10 @@
 	<true/>
 	<key>NSHumanReadableCopyright</key>
 	<string>Copyright © 2026 ClashFX. All rights reserved.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>ClashFX uses location info to detect your current WiFi network SSID name and provide the auto suspend services.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>ClashFX uses location info to detect your current WiFi network SSID name and provide the auto suspend services.</string>
 	<key>NSMainStoryboardFile</key>
 	<string>Main</string>
 	<key>NSPrincipalClass</key>
@@ -128,10 +128,10 @@
 	</dict>
 	<key>SUDisallowSelectChannel</key>
 	<false/>
-	<key>SUPublicEDKey</key>
-	<string>O+gNSh16a5FEGHwPrffpFzE35WbN/wjOctobXqHrUWU=</string>
 	<key>SUFeedURL</key>
 	<string>https://clash-fx.github.io/ClashFX/appcast.xml</string>
+	<key>SUPublicEDKey</key>
+	<string>O+gNSh16a5FEGHwPrffpFzE35WbN/wjOctobXqHrUWU=</string>
 	<key>coreVersion</key>
 	<string>1.19.21</string>
 </dict>
