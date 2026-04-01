@@ -31,6 +31,12 @@ class ClashProvider: Codable {
     enum ProviderType: String, Codable {
         case Proxy
         case String
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let rawValue = try container.decode(Swift.String.self)
+            self = ProviderType(rawValue: rawValue) ?? .Proxy
+        }
     }
 
     enum ProviderVehicleType: String, Codable {
@@ -38,6 +44,12 @@ class ClashProvider: Codable {
         case File
         case Compatible
         case Unknown
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            let rawValue = try container.decode(Swift.String.self)
+            self = ProviderVehicleType(rawValue: rawValue) ?? .Unknown
+        }
     }
 
     let name: ClashProviderName
