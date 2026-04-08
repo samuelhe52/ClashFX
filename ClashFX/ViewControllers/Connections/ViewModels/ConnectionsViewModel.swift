@@ -19,6 +19,7 @@ struct ConnectionApplication {
 
 @available(macOS 10.15, *)
 class ConnectionsViewModel {
+    private static let maxVerifyConnectionBacklog = 512
     @Published private(set) var applicationMap = [String: ConnectionApplication]()
     @Published private(set) var connections = [String: ClashConnectionSnapShot.Connection]()
     @Published var selectedConnection: ClashConnectionSnapShot.Connection? {
@@ -58,7 +59,11 @@ class ConnectionsViewModel {
             self?.update(snapShot: snap)
         }
         logReq.onLogUpdate.compactMap { $0.convertToConn() }.sink { [weak self] conn in
-            self?.verifyConnList.append(conn)
+            guard let self else { return }
+            self.verifyConnList.append(conn)
+            if self.verifyConnList.count > Self.maxVerifyConnectionBacklog {
+                self.verifyConnList.removeFirst(self.verifyConnList.count - Self.maxVerifyConnectionBacklog)
+            }
         }.store(in: &cancellable)
     }
 

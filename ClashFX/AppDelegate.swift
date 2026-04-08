@@ -14,6 +14,14 @@ import RxCocoa
 import RxSwift
 
 let statusItemLengthWithSpeed: CGFloat = 72
+let disableStatusItemExperiment = true
+
+private final class DisabledStatusItemView: StatusItemViewProtocol {
+    func updateViewStatus(enableProxy _: Bool) {}
+    func updateSpeedLabel(up _: Int, down _: Int) {}
+    func showSpeedContainer(show _: Bool) {}
+    func updateSize(width _: CGFloat) {}
+}
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
@@ -76,8 +84,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ProcessInfo.processInfo.disableSuddenTermination()
         // setup menu item first
         statusItem = NSStatusBar.system.statusItem(withLength: statusItemLengthWithSpeed)
-        statusItemView = StatusItemView.create(statusItem: statusItem)
-        statusItemView.updateSize(width: statusItemLengthWithSpeed)
+        if disableStatusItemExperiment {
+            statusItemView = DisabledStatusItemView()
+            if #available(macOS 10.12, *) {
+                statusItem.isVisible = false
+            } else {
+                statusItem.length = 0
+            }
+        } else {
+            statusItemView = StatusItemView.create(statusItem: statusItem)
+            statusItemView.updateSize(width: statusItemLengthWithSpeed)
+        }
         statusMenu.delegate = self
         setupStatusMenuItemData()
         DispatchQueue.main.async {
@@ -88,6 +105,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func postFinishLaunching() {
         Logger.log("postFinishLaunching")
         defer {
+            guard !disableStatusItemExperiment else { return }
             statusItem.menu = statusMenu
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                 self.checkMenuIconVisable()
@@ -120,13 +138,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // clash logger
         if ApiRequest.useDirectApi() {
-            Logger.log("setup built in logger/traffic")
-            clash_setLogBlock { line, level in
-                let clashLevel = ClashLogLevel(rawValue: level ?? "info")
-                Logger.log(line ?? "", level: clashLevel ?? .info, function: "")
-            }
-            clashSetupLogger()
-
+            Logger.log("setup built in traffic")
             clash_setTrafficBlock { [weak self] up, down in
                 if RemoteControlManager.selectConfig == nil,
                    ConfigManager.shared.isEnhancedModeActive == false {
@@ -532,13 +544,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         if elapsed >= minInterval {
             lastStreamResetTime = now
             ApiRequest.shared.delegate = self
-            ApiRequest.shared.resetStreamApis()
+            ApiRequest.shared.resetTrafficStreamApi()
         } else {
             let work = DispatchWorkItem { [weak self] in
                 guard let self = self else { return }
                 self.lastStreamResetTime = Date()
                 ApiRequest.shared.delegate = self
-                ApiRequest.shared.resetStreamApis()
+                ApiRequest.shared.resetTrafficStreamApi()
             }
             pendingStreamResetWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + (minInterval - elapsed), execute: work)
