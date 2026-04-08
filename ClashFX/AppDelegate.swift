@@ -105,10 +105,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func postFinishLaunching() {
         Logger.log("postFinishLaunching")
         defer {
-            guard !disableStatusItemExperiment else { return }
-            statusItem.menu = statusMenu
-            DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
-                self.checkMenuIconVisable()
+            if !disableStatusItemExperiment {
+                statusItem.menu = statusMenu
+                DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
+                    self.checkMenuIconVisable()
+                }
             }
         }
         if #unavailable(macOS 10.15) {
