@@ -73,6 +73,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var configEditorMenuItem: NSMenuItem?
     private var subscriptionStatusMenuItem: NSMenuItem?
     private var subscriptionStatusSeparator: NSMenuItem?
+    private weak var advancedTunMenuItem: NSMenuItem?
 
     var disposeBag = DisposeBag()
     var statusItemView: StatusItemViewProtocol!
@@ -116,6 +117,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.menu = statusMenu
         AppLogoTool.applyLogo()
         setupStatusMenuItemData()
+        installAdvancedTunMenuItem()
         DispatchQueue.main.async {
             self.postFinishLaunching()
         }
@@ -804,6 +806,74 @@ extension AppDelegate {
         }
     }
 
+    private func installAdvancedTunMenuItem() {
+        let item = NSMenuItem(
+            title: NSLocalizedString("Advanced TUN Settings…", comment: ""),
+            action: #selector(showAdvancedTunSettings(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        let parentMenu = enhancedModeMenuItem.menu ?? statusMenu
+        let insertIndex = (parentMenu?.index(of: enhancedModeMenuItem) ?? -1) + 1
+        if let menu = parentMenu, insertIndex > 0 {
+            menu.insertItem(item, at: insertIndex)
+        } else {
+            statusMenu.addItem(item)
+        }
+        advancedTunMenuItem = item
+    }
+
+    @objc func showAdvancedTunSettings(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = NSLocalizedString("Advanced TUN Settings", comment: "")
+        alert.informativeText = NSLocalizedString(
+            "MTU 1500 matches the real internet path; 4064 is the macOS utun ceiling. Pinning Interface avoids the macOS sleep/wake auto-detect bug. Toggle Enhanced Mode off then on to apply.",
+            comment: ""
+        )
+        alert.addButton(withTitle: NSLocalizedString("Apply", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("Cancel", comment: ""))
+
+        let mtuField = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 22))
+        mtuField.placeholderString = "1500"
+        mtuField.stringValue = "\(Settings.tunMTU)"
+
+        let mtuLabel = NSTextField(labelWithString: String(
+            format: NSLocalizedString("TUN MTU (%d–%d):", comment: ""),
+            Settings.minTunMTU, Settings.maxTunMTU
+        ))
+
+        let ifaceField = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 22))
+        ifaceField.placeholderString = "en0"
+        ifaceField.stringValue = Settings.tunInterfaceName
+
+        let ifaceLabel = NSTextField(labelWithString: NSLocalizedString(
+            "Interface (empty = auto-detect):",
+            comment: ""
+        ))
+
+        let stack = NSStackView(views: [mtuLabel, mtuField, ifaceLabel, ifaceField])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.frame = NSRect(x: 0, y: 0, width: 300, height: 110)
+
+        alert.accessoryView = stack
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let trimmedMTU = mtuField.stringValue.trimmingCharacters(in: .whitespaces)
+        if let mtu = Int(trimmedMTU), mtu >= Settings.minTunMTU, mtu <= Settings.maxTunMTU {
+            Settings.tunMTU = mtu
+        } else if !trimmedMTU.isEmpty {
+            NSUserNotificationCenter.default.postConfigErrorNotice(
+                msg: NSLocalizedString("Invalid MTU. Kept previous value.", comment: "")
+            )
+        }
+        Settings.tunInterfaceName = ifaceField.stringValue.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+    }
+
     private func enableEnhancedMode(completion: @escaping (String?) -> Void) {
         let tempConfigPath = kConfigFolderPath + ".enhanced_config.yaml"
         let selectedConfigName = ConfigManager.selectConfigName
@@ -813,7 +883,9 @@ extension AppDelegate {
                 let writeResult = clashWriteEnhancedConfig(
                     selectedConfigPath.goStringBuffer(),
                     tempConfigPath.goStringBuffer(),
-                    Settings.tunRouteExcludeList.joined(separator: ",").goStringBuffer()
+                    Settings.tunRouteExcludeList.joined(separator: ",").goStringBuffer(),
+                    GoUint32(Settings.tunMTU),
+                    Settings.tunInterfaceName.goStringBuffer()
                 )?.toString() ?? ""
 
                 DispatchQueue.main.async {
@@ -1693,6 +1765,7 @@ extension AppDelegate {
         let showProxyActions = Settings.trayMenuShowProxyActions
         proxySettingMenuItem.isHidden = !(showProxyActions && Settings.trayMenuShowSystemProxy)
         enhancedModeMenuItem.isHidden = !(showProxyActions && Settings.trayMenuShowEnhancedMode)
+        advancedTunMenuItem?.isHidden = enhancedModeMenuItem.isHidden
         let showCopy = showProxyActions && Settings.trayMenuShowCopyShellCmd
         copyExportCommandMenuItem.isHidden = !showCopy
         copyExportCommandExternalMenuItem.isHidden = !showCopy

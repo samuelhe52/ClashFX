@@ -41,6 +41,21 @@ enum Settings {
     @UserDefault("tunRouteExcludeRawText", defaultValue: "")
     static var tunRouteExcludeRawText: String
 
+    static let defaultTunMTU = 1500
+    static let minTunMTU = 1280
+    static let maxTunMTU = 9000
+    @UserDefault("tunMTU", defaultValue: defaultTunMTU)
+    static var tunMTU: Int {
+        didSet {
+            if tunMTU < minTunMTU || tunMTU > maxTunMTU {
+                tunMTU = defaultTunMTU
+            }
+        }
+    }
+
+    @UserDefault("tunInterfaceName", defaultValue: "")
+    static var tunInterfaceName: String
+
     @UserDefault("disableMenubarNotice", defaultValue: false)
     static var disableMenubarNotice: Bool
 

@@ -542,3 +542,12 @@
 "Running from Xcode only updates the current Dock icon. Copy a Release app bundle out of DerivedData to test Finder icon changes." = "从 Xcode 运行时只会更新当前 Dock 图标。要测试访达里的应用图标变化，请复制 Release app bundle 后再试。";
 "Dock changed for this session, but this app bundle cannot persist Finder icon changes." = "当前 Dock 图标已更新，但这个 app bundle 不能持久保存访达图标变化。";
 "Default" = "默认";
+
+/* Advanced TUN Settings */
+"Advanced TUN Settings…" = "高级 TUN 设置…";
+"Advanced TUN Settings" = "高级 TUN 设置";
+"MTU 1500 matches the real internet path; 4064 is the macOS utun ceiling. Pinning Interface avoids the macOS sleep/wake auto-detect bug. Toggle Enhanced Mode off then on to apply." = "MTU 1500 与真实互联网路径一致；4064 是 macOS utun 的硬上限。指定出口网卡可避免 macOS 睡眠唤醒后自动探测失败的问题。修改后请关闭再开启增强模式以生效。";
+"Apply" = "应用";
+"TUN MTU (%d–%d):" = "TUN MTU（%d–%d）：";
+"Interface (empty = auto-detect):" = "出口网卡（留空 = 自动探测）：";
+"Invalid MTU. Kept previous value." = "MTU 无效，已保留原值。";

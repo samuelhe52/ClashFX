@@ -505,3 +505,12 @@
 "Running from Xcode only updates the current Dock icon. Copy a Release app bundle out of DerivedData to test Finder icon changes." = "Running from Xcode only updates the current Dock icon. Copy a Release app bundle out of DerivedData to test Finder icon changes.";
 "Dock changed for this session, but this app bundle cannot persist Finder icon changes." = "Dock changed for this session, but this app bundle cannot persist Finder icon changes.";
 "Default" = "Default";
+
+/* Advanced TUN Settings */
+"Advanced TUN Settings…" = "Advanced TUN Settings…";
+"Advanced TUN Settings" = "Advanced TUN Settings";
+"MTU 1500 matches the real internet path; 4064 is the macOS utun ceiling. Pinning Interface avoids the macOS sleep/wake auto-detect bug. Toggle Enhanced Mode off then on to apply." = "MTU 1500 matches the real internet path; 4064 is the macOS utun ceiling. Pinning Interface avoids the macOS sleep/wake auto-detect bug. Toggle Enhanced Mode off then on to apply.";
+"Apply" = "Apply";
+"TUN MTU (%d–%d):" = "TUN MTU (%d–%d):";
+"Interface (empty = auto-detect):" = "Interface (empty = auto-detect):";
+"Invalid MTU. Kept previous value." = "Invalid MTU. Kept previous value.";

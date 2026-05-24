@@ -46,10 +46,20 @@ var (
 	enableIPV6         bool   = false
 	tunEnabled         bool   = false
 	tunRouteExcludeRaw string = ""
-	tunMu              sync.Mutex
-	savedUIPath        string
-	callbacksPaused    int32 // atomic: 0=active, 1=paused
+	// tunMTUValue: 0 means use defaultTunMTU. Deviates from mihomo's upstream
+	// default of 9000 because macOS utun slot size is 4096 (XNU UTUN_IF_MAX_SLOT_SIZE)
+	// and sing-tun/gvisor have known bugs at high MTU (sing-tun #1168, gvisor #9922,
+	// gvisor PR #12634). See ClashFX docs for full rationale.
+	tunMTUValue uint32 = 0
+	// tunInterfaceName: empty preserves auto-detect. Non-empty pins the WAN interface
+	// and forces auto-detect OFF (mihomo issue #1011: macOS sleep/wake -> lo0 loopback).
+	tunInterfaceName string = ""
+	tunMu            sync.Mutex
+	savedUIPath      string
+	callbacksPaused  int32 // atomic: 0=active, 1=paused
 )
+
+const defaultTunMTU uint32 = 1500
 
 func isAddrValid(addr string) bool {
 	if addr != "" {
@@ -380,10 +390,21 @@ func applyTunConfig(rawCfg *config.RawConfig) {
 	rawCfg.Tun.Enable = true
 	rawCfg.Tun.Stack = constant.TunMixed
 	rawCfg.Tun.AutoRoute = true
-	rawCfg.Tun.AutoDetectInterface = true
 	rawCfg.Tun.StrictRoute = true
 	rawCfg.Tun.DNSHijack = []string{"any:53", "tcp://any:53"}
-	rawCfg.Tun.MTU = 9000
+
+	if tunMTUValue > 0 {
+		rawCfg.Tun.MTU = tunMTUValue
+	} else {
+		rawCfg.Tun.MTU = defaultTunMTU
+	}
+
+	if tunInterfaceName != "" {
+		rawCfg.Interface = tunInterfaceName
+		rawCfg.Tun.AutoDetectInterface = false
+	} else {
+		rawCfg.Tun.AutoDetectInterface = true
+	}
 
 	// TUN mode requires DNS with fake-ip or redir-host
 	if !rawCfg.DNS.Enable {
@@ -844,11 +865,20 @@ func clashResumeCore() *C.char {
 }
 
 //export clashWriteEnhancedConfig
-func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteExcludeList *C.char) *C.char {
+func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteExcludeList *C.char, tunMTUParam C.uint, tunInterfaceNameParam *C.char) *C.char {
 	excludeRaw := C.GoString(tunRouteExcludeList)
+	ifaceName := strings.TrimSpace(C.GoString(tunInterfaceNameParam))
+	mtuParam := uint32(tunMTUParam)
 	tunMu.Lock()
 	tunRouteExcludeRaw = excludeRaw
+	tunMTUValue = mtuParam
+	tunInterfaceName = ifaceName
 	tunMu.Unlock()
+
+	effectiveMTU := mtuParam
+	if effectiveMTU == 0 {
+		effectiveMTU = defaultTunMTU
+	}
 	srcPath := C.GoString(configPath)
 	if srcPath == "" {
 		srcPath = constant.Path.Config()
@@ -867,10 +897,13 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteEx
 		"enable":                true,
 		"stack":                 "mixed",
 		"auto-route":            true,
-		"auto-detect-interface": true,
+		"auto-detect-interface": ifaceName == "",
 		"strict-route":          true,
 		"dns-hijack":            []string{"any:53", "tcp://any:53"},
-		"mtu":                   9000,
+		"mtu":                   effectiveMTU,
+	}
+	if ifaceName != "" {
+		rawMap["interface-name"] = ifaceName
 	}
 
 	prefixes, domains, invalid := splitTunRouteExcludeEntries(excludeRaw)

@@ -505,3 +505,12 @@
 "Running from Xcode only updates the current Dock icon. Copy a Release app bundle out of DerivedData to test Finder icon changes." = "Xcode から実行している場合は現在の Dock アイコンのみ更新されます。Finder のアイコン変更をテストするには、Release app bundle をコピーしてください。";
 "Dock changed for this session, but this app bundle cannot persist Finder icon changes." = "現在の Dock アイコンは更新されましたが、この app bundle では Finder のアイコン変更を保存できません。";
 "Default" = "デフォルト";
+
+/* Advanced TUN Settings */
+"Advanced TUN Settings…" = "TUN 詳細設定…";
+"Advanced TUN Settings" = "TUN 詳細設定";
+"MTU 1500 matches the real internet path; 4064 is the macOS utun ceiling. Pinning Interface avoids the macOS sleep/wake auto-detect bug. Toggle Enhanced Mode off then on to apply." = "MTU 1500 は実際のインターネット経路に一致します。4064 は macOS utun のハードリミットです。インターフェース名を固定することで、macOS のスリープ復帰時の自動検出バグを回避できます。変更後は拡張モードを一度オフにしてからオンにしてください。";
+"Apply" = "適用";
+"TUN MTU (%d–%d):" = "TUN MTU(%d–%d):";
+"Interface (empty = auto-detect):" = "インターフェース(空欄 = 自動検出):";
+"Invalid MTU. Kept previous value." = "MTU が無効です。以前の値を保持しました。";
