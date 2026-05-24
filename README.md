@@ -85,6 +85,18 @@ ClashFX's core feature — TUN-based global proxy that captures all TCP/UDP traf
   clash://update-config
   ```
 
+## 🤝 Companion Repo: cn-apps-direct
+
+The **"Bypass Common Chinese Apps"** toggle (added in v1.0.38, under Enhanced Mode) reads its `PROCESS-NAME` rule list from **[Clash-FX/cn-apps-direct](https://github.com/Clash-FX/cn-apps-direct)** — a small community-maintained repo of macOS executable names for high-frequency Chinese apps (WeChat, QQ, DingTalk, Feishu, Bilibili, etc.). The list updates automatically every 24 hours via `rule-provider`, decoupled from the ClashFX release cycle.
+
+**Want to add an app or fix a wrong process name?** PRs are welcome — see [CONTRIBUTING.md](https://github.com/Clash-FX/cn-apps-direct/blob/main/CONTRIBUTING.md). Adding an entry takes about a minute:
+
+```bash
+ls /Applications/<App>.app/Contents/MacOS/   # verify the actual executable name
+# append the verified name as: PROCESS-NAME,<name>,DIRECT
+# open a PR
+```
+
 ## 📄 License
 
 [AGPL-3.0](LICENSE)

@@ -85,6 +85,18 @@ ClashFX のコア機能 — TUN ベースのグローバルプロキシで、ブ
   clash://update-config
   ```
 
+## 🤝 関連リポジトリ：cn-apps-direct
+
+v1.0.38 で追加された **「Bypass Common Chinese Apps」（拡張モード → 中国系アプリの直接接続）** トグルは、**[Clash-FX/cn-apps-direct](https://github.com/Clash-FX/cn-apps-direct)** から `PROCESS-NAME` ルールリストを取得します。これは中国でよく使われる macOS クライアント（WeChat、QQ、DingTalk、Feishu、Bilibili など）の実行ファイル名を集めたコミュニティ管理のリストです。リストは `rule-provider` 経由で 24 時間ごとに自動更新され、ClashFX のリリースサイクルから独立しています。
+
+**アプリを追加したい・プロセス名の誤りを修正したい？** PR を歓迎します —— [CONTRIBUTING.md](https://github.com/Clash-FX/cn-apps-direct/blob/main/CONTRIBUTING.md) を参照してください。エントリの追加は約 1 分で完了します：
+
+```bash
+ls /Applications/<App>.app/Contents/MacOS/   # 実際の実行ファイル名を確認
+# 確認した名前を以下の形式で追加: PROCESS-NAME,<name>,DIRECT
+# PR を開く
+```
+
 ## 📄 ライセンス
 
 [AGPL-3.0](LICENSE)

@@ -85,6 +85,18 @@ ClashFX 的核心功能 — 基于 TUN 的全局代理，捕获所有应用的 T
   clash://update-config
   ```
 
+## 🤝 配套仓库：cn-apps-direct
+
+v1.0.38 新增的 **"Bypass Common Chinese Apps"（增强模式 → 国内 App 直连）** 开关从 **[Clash-FX/cn-apps-direct](https://github.com/Clash-FX/cn-apps-direct)** 拉取 `PROCESS-NAME` 规则清单，这是社区共同维护的国内高频 macOS 客户端可执行文件名列表（微信、QQ、钉钉、飞书、哔哩哔哩等）。清单通过 `rule-provider` 每 24 小时自动更新，与 ClashFX 发版周期解耦。
+
+**想加新 app 或修正错误的进程名？** 欢迎提 PR——参考 [CONTRIBUTING.md](https://github.com/Clash-FX/cn-apps-direct/blob/main/CONTRIBUTING.md)。加一个条目大约一分钟：
+
+```bash
+ls /Applications/<App>.app/Contents/MacOS/   # 验证实际可执行文件名
+# 把验证后的名字追加为: PROCESS-NAME,<name>,DIRECT
+# 开 PR
+```
+
 ## 📄 许可证
 
 [AGPL-3.0](LICENSE)

@@ -85,6 +85,18 @@
   clash://update-config
   ```
 
+## 🤝 Сопутствующий репозиторий: cn-apps-direct
+
+Переключатель **«Bypass Common Chinese Apps» (Расширенный режим → Прямое подключение для китайских приложений)**, добавленный в v1.0.38, загружает список правил `PROCESS-NAME` из **[Clash-FX/cn-apps-direct](https://github.com/Clash-FX/cn-apps-direct)** — небольшого репозитория, поддерживаемого сообществом, со списком имён исполняемых файлов macOS для часто используемых китайских приложений (WeChat, QQ, DingTalk, Feishu, Bilibili и др.). Список автоматически обновляется каждые 24 часа через `rule-provider` и не зависит от цикла релизов ClashFX.
+
+**Хотите добавить приложение или исправить неверное имя процесса?** PR приветствуются — см. [CONTRIBUTING.md](https://github.com/Clash-FX/cn-apps-direct/blob/main/CONTRIBUTING.md). Добавление записи занимает около минуты:
+
+```bash
+ls /Applications/<App>.app/Contents/MacOS/   # проверьте реальное имя исполняемого файла
+# добавьте проверенное имя в формате: PROCESS-NAME,<name>,DIRECT
+# откройте PR
+```
+
 ## 📄 Лицензия
 
 [AGPL-3.0](LICENSE)
