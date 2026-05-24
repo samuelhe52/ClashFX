@@ -8,13 +8,25 @@
 import Cocoa
 
 class AppearanceSettingViewController: NSViewController {
-    private var didComputePreferredSize = false
     private let trayMenuSettingViewHeight: CGFloat = 300
+    private let preferredViewportHeight: CGFloat = 560
 
     override func loadView() {
         let width: CGFloat = 400
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: 420))
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: width, height: preferredViewportHeight))
         contentView.translatesAutoresizingMaskIntoConstraints = false
+
+        let scrollView = NSScrollView()
+        scrollView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+
+        let documentView = NSView()
+        documentView.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.documentView = documentView
 
         let trayBox = NSBox()
         trayBox.translatesAutoresizingMaskIntoConstraints = false
@@ -65,46 +77,40 @@ class AppearanceSettingViewController: NSViewController {
             ])
         }
 
-        contentView.addSubview(trayBox)
-        contentView.addSubview(logoBox)
-        contentView.addSubview(menuBox)
+        contentView.addSubview(scrollView)
+        documentView.addSubview(trayBox)
+        documentView.addSubview(logoBox)
+        documentView.addSubview(menuBox)
 
         NSLayoutConstraint.activate([
-            trayBox.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 30),
-            trayBox.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            trayBox.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            scrollView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            scrollView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            scrollView.bottomAnchor.constraint(equalTo: contentView.bottomAnchor),
+
+            documentView.topAnchor.constraint(equalTo: scrollView.contentView.topAnchor),
+            documentView.leadingAnchor.constraint(equalTo: scrollView.contentView.leadingAnchor),
+            documentView.trailingAnchor.constraint(equalTo: scrollView.contentView.trailingAnchor),
+            documentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
+            documentView.heightAnchor.constraint(greaterThanOrEqualTo: scrollView.contentView.heightAnchor),
+
+            trayBox.topAnchor.constraint(equalTo: documentView.topAnchor, constant: 18),
+            trayBox.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 20),
+            trayBox.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -20),
 
             logoBox.topAnchor.constraint(equalTo: trayBox.bottomAnchor, constant: 12),
-            logoBox.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            logoBox.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            logoBox.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 20),
+            logoBox.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -20),
 
             menuBox.topAnchor.constraint(equalTo: logoBox.bottomAnchor, constant: 12),
-            menuBox.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 20),
-            menuBox.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -20),
+            menuBox.leadingAnchor.constraint(equalTo: documentView.leadingAnchor, constant: 20),
+            menuBox.trailingAnchor.constraint(equalTo: documentView.trailingAnchor, constant: -20),
 
-            contentView.bottomAnchor.constraint(greaterThanOrEqualTo: menuBox.bottomAnchor, constant: 20)
+            documentView.bottomAnchor.constraint(equalTo: menuBox.bottomAnchor, constant: 20)
         ])
 
         view = contentView
         title = NSLocalizedString("Appearance", comment: "")
-        preferredContentSize = NSSize(width: 420, height: 460)
-    }
-
-    override func viewDidLayout() {
-        super.viewDidLayout()
-        guard !didComputePreferredSize else { return }
-        let fittingHeight = view.fittingSize.height
-        if fittingHeight > 0 {
-            didComputePreferredSize = true
-            preferredContentSize = NSSize(width: preferredContentSize.width, height: fittingHeight)
-            // If currently displayed, resize window immediately
-            if let window = view.window, view.superview != nil {
-                let newFrame = window.frameRect(forContentRect: NSRect(origin: .zero, size: preferredContentSize))
-                var frame = window.frame
-                frame.origin.y += frame.height - newFrame.height
-                frame.size.height = newFrame.height
-                window.setFrame(frame, display: true, animate: true)
-            }
-        }
+        preferredContentSize = NSSize(width: 420, height: preferredViewportHeight)
     }
 }
