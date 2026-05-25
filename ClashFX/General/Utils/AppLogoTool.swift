@@ -128,36 +128,20 @@ enum AppLogoTool {
 
         icon.draw(in: NSRect(origin: .zero, size: canvas))
 
-        let triSize: CGFloat = 360
-        let path = NSBezierPath()
-        path.move(to: NSPoint(x: canvas.width, y: canvas.height))
-        path.line(to: NSPoint(x: canvas.width - triSize, y: canvas.height))
-        path.line(to: NSPoint(x: canvas.width, y: canvas.height - triSize))
-        path.close()
+        let dotDiameter: CGFloat = 200
+        let inset: CGFloat = 150
+        let dotRect = NSRect(
+            x: canvas.width - inset - dotDiameter,
+            y: canvas.height - inset - dotDiameter,
+            width: dotDiameter,
+            height: dotDiameter
+        )
+        let dot = NSBezierPath(ovalIn: dotRect)
         NSColor.systemOrange.setFill()
-        path.fill()
+        dot.fill()
         NSColor.white.setStroke()
-        path.lineWidth = 14
-        path.stroke()
-
-        let label = "Lab"
-        let attrs: [NSAttributedString.Key: Any] = [
-            .font: NSFont.systemFont(ofSize: 120, weight: .black),
-            .foregroundColor: NSColor.white,
-            .kern: 2
-        ]
-        let textSize = (label as NSString).size(withAttributes: attrs)
-        let cx = canvas.width - triSize / 2.7
-        let cy = canvas.height - triSize / 2.7
-
-        NSGraphicsContext.current?.saveGraphicsState()
-        let transform = NSAffineTransform()
-        transform.translateX(by: cx, yBy: cy)
-        transform.rotate(byDegrees: -45)
-        transform.concat()
-        let textRect = NSRect(x: -textSize.width / 2, y: -textSize.height / 2, width: textSize.width, height: textSize.height)
-        (label as NSString).draw(in: textRect, withAttributes: attrs)
-        NSGraphicsContext.current?.restoreGraphicsState()
+        dot.lineWidth = 24
+        dot.stroke()
 
         return result
     }
