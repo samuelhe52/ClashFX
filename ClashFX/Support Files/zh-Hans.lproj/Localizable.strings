@@ -592,3 +592,4 @@
 "Stable will not auto-upgrade back to Lab." = "正式版不会自动升级回 Lab。";
 "If Enhanced Mode is on, please disable it before downgrading." = "如果已开启增强模式,请先关闭再降级。";
 "Open Download Page" = "打开下载页";
+"Local development build" = "本地开发版";

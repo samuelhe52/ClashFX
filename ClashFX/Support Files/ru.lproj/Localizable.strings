@@ -555,3 +555,4 @@
 "Stable will not auto-upgrade back to Lab." = "Стабильный канал не будет авто-обновляться обратно на Lab.";
 "If Enhanced Mode is on, please disable it before downgrading." = "Если включён Enhanced Mode, отключите его перед откатом.";
 "Open Download Page" = "Открыть страницу загрузки";
+"Local development build" = "Локальная сборка для разработки";

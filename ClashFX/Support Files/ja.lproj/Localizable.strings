@@ -555,3 +555,4 @@
 "Stable will not auto-upgrade back to Lab." = "安定版は Lab に自動アップグレードしません。";
 "If Enhanced Mode is on, please disable it before downgrading." = "Enhanced Mode が有効な場合は、ダウングレード前に無効化してください。";
 "Open Download Page" = "ダウンロードページを開く";
+"Local development build" = "ローカル開発ビルド";

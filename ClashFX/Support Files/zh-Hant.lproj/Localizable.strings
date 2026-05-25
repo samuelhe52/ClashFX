@@ -555,3 +555,4 @@
 "Stable will not auto-upgrade back to Lab." = "正式版不會自動升級回 Lab。";
 "If Enhanced Mode is on, please disable it before downgrading." = "如果已啟用增強模式,請先關閉再降級。";
 "Open Download Page" = "開啟下載頁";
+"Local development build" = "本機開發版";

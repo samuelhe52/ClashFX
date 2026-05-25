@@ -31,7 +31,11 @@ class AboutViewController: NSViewController {
 
         versionLabel.stringValue = "Version: \(version) (\(build))\(isBeta)"
         coreVersionLabel.stringValue = clashCoreVersion
-        buildTimeLabel.stringValue = "\(commit)-\(branch) \(buildTime)"
+        if commit == "unknown" && branch == "unknown" && buildTime == "unknown" {
+            buildTimeLabel.stringValue = NSLocalizedString("Local development build", comment: "")
+        } else {
+            buildTimeLabel.stringValue = "\(commit)-\(branch) \(buildTime)"
+        }
     }
 
     override func viewWillAppear() {
