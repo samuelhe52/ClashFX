@@ -560,3 +560,6 @@
 "TUN MTU (%d–%d):" = "TUN MTU（%d–%d）：";
 "Interface (empty = auto-detect):" = "出口网卡（留空 = 自动探测）：";
 "Invalid MTU. Kept previous value." = "MTU 无效，已保留原值。";
+
+/* Bypass Common Chinese Apps */
+"Bypass Common Chinese Apps" = "绕过常用国内应用";

@@ -523,3 +523,6 @@
 "TUN MTU (%d–%d):" = "TUN MTU（%d–%d）：";
 "Interface (empty = auto-detect):" = "出口網卡（留空 = 自動偵測）：";
 "Invalid MTU. Kept previous value." = "MTU 無效,已保留原值。";
+
+/* Bypass Common Chinese Apps */
+"Bypass Common Chinese Apps" = "繞過常用國內應用";

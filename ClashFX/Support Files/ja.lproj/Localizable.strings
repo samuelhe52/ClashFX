@@ -523,3 +523,6 @@
 "TUN MTU (%d–%d):" = "TUN MTU(%d–%d):";
 "Interface (empty = auto-detect):" = "インターフェース(空欄 = 自動検出):";
 "Invalid MTU. Kept previous value." = "MTU が無効です。以前の値を保持しました。";
+
+/* Bypass Common Chinese Apps */
+"Bypass Common Chinese Apps" = "中国の主要アプリをバイパス";

@@ -523,3 +523,6 @@
 "TUN MTU (%d–%d):" = "TUN MTU (%d–%d):";
 "Interface (empty = auto-detect):" = "Interface (empty = auto-detect):";
 "Invalid MTU. Kept previous value." = "Invalid MTU. Kept previous value.";
+
+/* Bypass Common Chinese Apps */
+"Bypass Common Chinese Apps" = "Bypass Common Chinese Apps";
