@@ -15,6 +15,7 @@ import CocoaLumberjack
 import LetsMove
 import RxCocoa
 import RxSwift
+import Yams
 
 let statusItemLengthWithSpeed: CGFloat = 72
 
@@ -763,8 +764,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         ClashProxy.cleanCache()
 
-        ApiRequest.requestConfigUpdate(configName: config) {
-            [weak self] err in
+        let reloadCallback: (ErrorString?) -> Void = { [weak self] err in
             guard let self = self else { return }
 
             clashResumeCallbacks()
@@ -795,6 +795,75 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 MenuItemFactory.recreateProxyMenuItems()
                 NotificationCenter.default.post(name: .reloadDashboard, object: nil)
             }
+        }
+
+        requestConfigUpdateApplyingRulePatch(configName: config, callback: reloadCallback)
+    }
+
+    private static let rulePatchedConfigPath = kConfigFolderPath + ".rule_patched_config.runtime"
+
+    private func requestConfigUpdateApplyingRulePatch(configName: String, callback: @escaping ((ErrorString?) -> Void)) {
+        if let patchedPath = writeRulePatchedConfigIfNeeded(for: configName) {
+            ApiRequest.requestConfigUpdate(configPath: patchedPath, callback: callback)
+        } else {
+            ApiRequest.requestConfigUpdate(configName: configName, callback: callback)
+        }
+    }
+
+    private func writeRulePatchedConfigIfNeeded(for configName: String) -> String? {
+        let removePatched: () -> Void = {
+            try? FileManager.default.removeItem(atPath: Self.rulePatchedConfigPath)
+        }
+
+        guard !Settings.enhancedMode else {
+            removePatched()
+            return nil
+        }
+
+        guard !ICloudManager.shared.useiCloud.value else {
+            removePatched()
+            return nil
+        }
+
+        let injectedRules = Settings.proxyIgnoreListAsRules()
+        guard !injectedRules.isEmpty else {
+            removePatched()
+            return nil
+        }
+
+        let userPath = Paths.localConfigPath(for: configName)
+        guard FileManager.default.fileExists(atPath: userPath) else {
+            removePatched()
+            return nil
+        }
+
+        do {
+            let yaml = try String(contentsOfFile: userPath, encoding: .utf8)
+            guard var root = try Yams.load(yaml: yaml) as? [String: Any] else {
+                Logger.log("[Rule Patch] YAML root is not a dictionary, skipping", level: .warning)
+                removePatched()
+                return nil
+            }
+            let existingRules: [String]
+            if let rules = root["rules"] {
+                guard let parsedRules = rules as? [String] else {
+                    Logger.log("[Rule Patch] YAML rules is not a string array, skipping", level: .warning)
+                    removePatched()
+                    return nil
+                }
+                existingRules = parsedRules
+            } else {
+                existingRules = []
+            }
+            root["rules"] = injectedRules + existingRules
+            let patched = try Yams.dump(object: root)
+            try patched.write(toFile: Self.rulePatchedConfigPath, atomically: true, encoding: .utf8)
+            Logger.log("[Rule Patch] Injected \(injectedRules.count) ignore rules into \(Self.rulePatchedConfigPath)")
+            return Self.rulePatchedConfigPath
+        } catch {
+            Logger.log("[Rule Patch] Failed: \(error.localizedDescription)", level: .warning)
+            removePatched()
+            return nil
         }
     }
 
@@ -1208,7 +1277,7 @@ extension AppDelegate {
                 return
             }
             let selectedConfig = ConfigManager.selectConfigName
-            ApiRequest.requestConfigUpdate(configName: selectedConfig) { _ in
+            self?.requestConfigUpdateApplyingRulePatch(configName: selectedConfig) { _ in
                 clashResumeCallbacks()
                 completion(nil)
             }

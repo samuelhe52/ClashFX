@@ -16,13 +16,17 @@ class ConnectionsReq: WebSocketDelegate {
     let decoder = JSONDecoder()
     var onSnapshotUpdate: ((ClashConnectionSnapShot) -> Void)?
     init() {
-        if let url = URL(string: ConfigManager.apiUrl.appending("/connections")) {
-            socket = WebSocket(url: url)
+        guard let url = URL(string: ConfigManager.apiUrl.appending("/connections")) else {
+            decoder.dateDecodingStrategy = .formatted(DateFormatter.js)
+            return
         }
+        var request = URLRequest(url: url)
         for header in ApiRequest.authHeader() {
-            socket?.request.setValue(header.value, forHTTPHeaderField: header.name)
+            request.setValue(header.value, forHTTPHeaderField: header.name)
         }
-        socket?.delegate = self
+        let socket = WebSocket(request: request)
+        socket.delegate = self
+        self.socket = socket
         decoder.dateDecodingStrategy = .formatted(DateFormatter.js)
     }
 
@@ -30,24 +34,29 @@ class ConnectionsReq: WebSocketDelegate {
         socket?.connect()
     }
 
-    func websocketDidReceiveMessage(socket: WebSocketClient, text: String) {
-        if let data = text.data(using: .utf8) {
-            do {
-                let info = try decoder.decode(ClashConnectionSnapShot.self, from: data)
-                onSnapshotUpdate?(info)
-            } catch let err {
-                Logger.log("decode fail: \(err)", level: .warning)
+    func didReceive(event: WebSocketEvent, client: WebSocketClient) {
+        switch event {
+        case .connected:
+            Logger.log("websocketDidConnect")
+        case let .disconnected(reason, code):
+            Logger.log("websocketDidDisconnect: \(reason) (code=\(code))", level: .warning)
+        case let .text(text):
+            if let data = text.data(using: .utf8) {
+                do {
+                    let info = try decoder.decode(ClashConnectionSnapShot.self, from: data)
+                    onSnapshotUpdate?(info)
+                } catch {
+                    Logger.log("decode fail: \(error)", level: .warning)
+                }
             }
+        case .cancelled:
+            Logger.log("websocket cancelled", level: .warning)
+        case .peerClosed:
+            Logger.log("websocket peer closed", level: .warning)
+        case let .error(error):
+            Logger.log("websocket error: \(String(describing: error))", level: .warning)
+        case .binary, .ping, .pong, .viabilityChanged, .reconnectSuggested:
+            break
         }
     }
-
-    func websocketDidConnect(socket: Starscream.WebSocketClient) {
-        Logger.log("websocketDidConnect")
-    }
-
-    func websocketDidDisconnect(socket: Starscream.WebSocketClient, error: Error?) {
-        Logger.log("websocketDidDisconnect: \(String(describing: error))", level: .warning)
-    }
-
-    func websocketDidReceiveData(socket: Starscream.WebSocketClient, data: Data) {}
 }

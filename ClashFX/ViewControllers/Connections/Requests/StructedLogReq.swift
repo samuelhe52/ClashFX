@@ -92,17 +92,6 @@ class LogConn {
 
 @available(macOS 10.15, *)
 class StructedLogReq: WebSocketDelegate {
-    /*
-        {"time":"22:44:32","level":"warn","message":"[TCP] dial failed",
-        "fields":[{"key":"error","value":"dial tcp4 1.2.4.6:80: i/o timeout"},
-                 {"key":"proxy","value":"Domestic"},
-                 {"key":"lAddr","value":"127.0.0.1:49790"},
-                 {"key":"rAddr","value":"1.2.4.6:80"},
-                 {"key":"rule","value":"GeoIP"},
-                 {"key":"rulePayload","value":"CN"}]
-        }
-        {"time":"22:42:09","level":"debug","message":"[TUN] hijack udp dns","fields":[{"key":"addr","value":"198.18.0.2:53"}]}
-     */
     let logLevel = ClashLogLevel.info
     private var socket: WebSocket?
 
@@ -110,13 +99,17 @@ class StructedLogReq: WebSocketDelegate {
 
     let onLogUpdate = PassthroughSubject<StructedLog, Never>()
     init(level: ClashLogLevel = .warning) {
-        if let url = URL(string: ConfigManager.apiUrl.appending("/logs?format=structured&level=\(logLevel.rawValue)")) {
-            socket = WebSocket(url: url)
+        guard let url = URL(string: ConfigManager.apiUrl.appending("/logs?format=structured&level=\(logLevel.rawValue)")) else {
+            decoder.dateDecodingStrategy = .formatted(DateFormatter.js)
+            return
         }
+        var request = URLRequest(url: url)
         for header in ApiRequest.authHeader() {
-            socket?.request.setValue(header.value, forHTTPHeaderField: header.name)
+            request.setValue(header.value, forHTTPHeaderField: header.name)
         }
-        socket?.delegate = self
+        let socket = WebSocket(request: request)
+        socket.delegate = self
+        self.socket = socket
         decoder.dateDecodingStrategy = .formatted(DateFormatter.js)
     }
 
@@ -124,24 +117,29 @@ class StructedLogReq: WebSocketDelegate {
         socket?.connect()
     }
 
-    func websocketDidReceiveMessage(socket: WebSocketClient, text: String) {
-        if let data = text.data(using: .utf8) {
-            do {
-                let info = try decoder.decode(StructedLog.self, from: data)
-                onLogUpdate.send(info)
-            } catch let err {
-                Logger.log("decode fail: \(err)", level: .warning)
+    func didReceive(event: WebSocketEvent, client: WebSocketClient) {
+        switch event {
+        case .connected:
+            Logger.log("websocketDidConnect")
+        case let .disconnected(reason, code):
+            Logger.log("websocketDidDisconnect: \(reason) (code=\(code))", level: .warning)
+        case let .text(text):
+            if let data = text.data(using: .utf8) {
+                do {
+                    let info = try decoder.decode(StructedLog.self, from: data)
+                    onLogUpdate.send(info)
+                } catch {
+                    Logger.log("decode fail: \(error)", level: .warning)
+                }
             }
+        case .cancelled:
+            Logger.log("websocket cancelled", level: .warning)
+        case .peerClosed:
+            Logger.log("websocket peer closed", level: .warning)
+        case let .error(error):
+            Logger.log("websocket error: \(String(describing: error))", level: .warning)
+        case .binary, .ping, .pong, .viabilityChanged, .reconnectSuggested:
+            break
         }
     }
-
-    func websocketDidConnect(socket: Starscream.WebSocketClient) {
-        Logger.log("websocketDidConnect")
-    }
-
-    func websocketDidDisconnect(socket: Starscream.WebSocketClient, error: Error?) {
-        Logger.log("websocketDidDisconnect: \(String(describing: error))", level: .warning)
-    }
-
-    func websocketDidReceiveData(socket: Starscream.WebSocketClient, data: Data) {}
 }

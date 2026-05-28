@@ -7,6 +7,7 @@
 //
 
 import Foundation
+import Network
 
 enum Settings {
     /// Must be MaxMind MMDB format (verifyGEOIPDataBase uses oschwald/geoip2-golang, which rejects mihomo's proprietary .metadb).
@@ -87,6 +88,73 @@ enum Settings {
             return nil
         }
         return "172.\(secondOctet).0.0/16"
+    }
+
+    static func proxyIgnoreEntryToRule(_ entry: String) -> String? {
+        let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        guard !trimmed.contains(where: { $0.isWhitespace || $0 == "," }) else { return nil }
+
+        if let cidr = legacyWildcardTunRouteExcludeEntry(trimmed) {
+            return "IP-CIDR,\(cidr),DIRECT,no-resolve"
+        }
+
+        if let slashIdx = trimmed.firstIndex(of: "/") {
+            let host = String(trimmed[..<slashIdx])
+            let prefix = String(trimmed[trimmed.index(after: slashIdx)...])
+            guard let prefixLen = Int(prefix), prefixLen >= 0 else { return nil }
+            if isValidIPv4(host), prefixLen <= 32 {
+                return "IP-CIDR,\(host)/\(prefixLen),DIRECT,no-resolve"
+            }
+            if isValidIPv6(host), prefixLen <= 128 {
+                return "IP-CIDR6,\(host)/\(prefixLen),DIRECT,no-resolve"
+            }
+            return nil
+        }
+
+        if trimmed.hasPrefix("*.") {
+            let suffix = String(trimmed.dropFirst(2))
+            guard isValidDomain(suffix) else { return nil }
+            return "DOMAIN-SUFFIX,\(suffix),DIRECT"
+        }
+
+        if isValidIPv4(trimmed) {
+            return "IP-CIDR,\(trimmed)/32,DIRECT,no-resolve"
+        }
+
+        if isValidIPv6(trimmed) {
+            return "IP-CIDR6,\(trimmed)/128,DIRECT,no-resolve"
+        }
+
+        guard isValidDomain(trimmed) else { return nil }
+        return "DOMAIN,\(trimmed),DIRECT"
+    }
+
+    static func proxyIgnoreListAsRules() -> [String] {
+        proxyIgnoreList.compactMap { proxyIgnoreEntryToRule($0) }
+    }
+
+    private static func isValidIPv4(_ s: String) -> Bool {
+        return IPv4Address(s) != nil
+    }
+
+    private static func isValidIPv6(_ s: String) -> Bool {
+        return IPv6Address(s) != nil
+    }
+
+    private static func isValidDomain(_ s: String) -> Bool {
+        guard !s.isEmpty, s.count <= 253 else { return false }
+        guard !s.hasPrefix("."), !s.hasSuffix(".") else { return false }
+        guard !s.contains("..") else { return false }
+        let labels = s.split(separator: ".", omittingEmptySubsequences: false)
+        guard labels.count >= 1 else { return false }
+        let labelRegex = try? NSRegularExpression(pattern: "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+        for label in labels {
+            let str = String(label)
+            guard str.count <= 63 else { return false }
+            guard labelRegex?.firstMatch(in: str, range: NSRange(0 ..< str.utf16.count)) != nil else { return false }
+        }
+        return true
     }
 
     static let defaultTunMTU = 1500
