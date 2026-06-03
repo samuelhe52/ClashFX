@@ -1,23 +1,23 @@
 ### Bug Fixes
 
-- **Enhanced Mode No Longer Times Out All Nodes on Startup** — When Enhanced Mode (TUN) was enabled, the external `mihomo` core's own outbound connections — proxy server handshakes and rule-provider HTTP fetches (YouTube, ChinaMax, DMM, SteamCN, Bahamut, etc.) — were being re-captured by the TUN device and routed back through the rules engine, hitting `MATCH/<proxy-group>` before any session could be established. This caused a self-bootstrapping loop where every node reported `context deadline exceeded` and all rule-providers failed with EOF. The root cause was that no rule in the generated `.enhanced_config.yaml` excluded the `mihomo` process itself from TUN interception. Fixed by prepending `PROCESS-NAME,mihomo,DIRECT`, `PROCESS-NAME,mihomo-bin,DIRECT`, and `PROCESS-NAME,mihomo_core,DIRECT` ahead of all user rules in the generated config so the core's own traffic always exits directly without re-entering the tunnel. Thanks @JackeyLov5 for the detailed log and patient follow-up. (#75)
-- **Enhanced Mode No Longer Silently Exposes Proxy to LAN** — The generated `.enhanced_config.yaml` was inheriting `bind-address: "*"` from the source config, causing the proxy listener to accept connections from all network interfaces even when `allow-lan` was not explicitly set. On shared networks this meant other devices on the same LAN could route traffic through your proxy without any indication in the UI. The generated config now enforces `allow-lan: false` and `bind-address: 127.0.0.1` by default; if the source config explicitly declares `allow-lan: true`, the original value is preserved. Thanks @JackeyLov5 for reporting both issues together. (#75)
-- **Help Menu Lab Items Now Have Individual Visibility Toggles** — "Send Feedback…", "Copy Diagnostic Info…", and "Open Crash Log Folder" can now be individually shown or hidden from the tray menu display settings, matching every other menu item. The "Roll Back to Stable…" toggle correctly appears only on Lab builds where that menu item actually exists; Stable users no longer see a non-functional toggle. The separator above the Lab Help block is also hidden automatically when all items in the group are hidden. Thanks @ayangweb for the contribution. (#112)
+- **Enhanced Mode Now Respects Your `tun.stack` Setting** — The generated `.enhanced_config.yaml` previously hardcoded `stack: mixed`, silently overriding a user-configured `tun.stack`. If your config set `system` (or `gvisor`), the dashboard showed `mixed` and reverting it never stuck. ClashFX now reads `tun.stack` from your source config, validates it against `system`/`gvisor`/`mixed` (case-insensitive), and only falls back to `mixed` when it is unset or invalid. Both the embedded and external core paths use the same resolved value so they never diverge. (#115)
+- **Dashboard Theme & Column Settings Now Persist** — In Enhanced Mode the external controller was assigned a random port on every launch, so the Yacd dashboard origin (`127.0.0.1:PORT`) changed each time and its per-origin `localStorage` (theme, custom columns) appeared to reset. ClashFX now pins a stable controller port (`19090`) and only falls back to a random free port if that port is already taken, keeping the dashboard origin — and your saved preferences — stable across launches. (#115)
+- **Enhanced Mode Startup Is More Resilient** — Enabling Enhanced Mode now automatically retries once when the external core fails to bind (e.g. a transient port race or a leftover `mihomo_core` process holding the controller port). Each retry regenerates the config with a fresh port instead of failing outright, so toggling Enhanced Mode on is far less likely to error out and require a manual retry.
+- **Reopening ClashFX Reveals the Menu Bar Icon** — When ClashFX is already running and you launch it again from Finder, Spotlight, Launchpad, or the Dock, it now pops open the menu bar menu so you can locate the icon — helpful when the menu bar is crowded and the icon is hidden. Thanks @hangox for the suggestion. (#114)
 
 ### Contributors
 
-- @ayangweb — Help menu Lab item visibility toggles (#112)
-- @JackeyLov5 — Detailed Enhanced Mode log and reproduction that pinpointed both the node-timeout and LAN-exposure bugs (#75)
+- @hangox — Suggestion to reveal the menu bar item when reopening an already-running app (#114)
 
 ---
 
 ### 修复
 
-- **增强模式启动不再导致节点全部超时** — 开启增强模式（TUN）后，外部 `mihomo` 核心自身发出的连接——向代理服务器握手、拉取 rule-provider（YouTube、ChinaMax、DMM、SteamCN、Bahamut 等）——会被 TUN 设备重新截获，经规则引擎命中 `MATCH/<代理组>`，在任何 session 建立成功之前形成自举死循环，导致所有节点 `context deadline exceeded`、所有 rule-provider 报 EOF。根本原因是生成的 `.enhanced_config.yaml` 中没有任何规则将 `mihomo` 进程自身排除在 TUN 拦截之外。修复方式：在生成配置的所有用户规则之前插入 `PROCESS-NAME,mihomo,DIRECT`、`PROCESS-NAME,mihomo-bin,DIRECT`、`PROCESS-NAME,mihomo_core,DIRECT`，确保核心自身出站流量始终直连、不重入隧道。感谢 @JackeyLov5 提供详细日志并耐心跟进。(#75)
-- **增强模式不再静默将代理暴露给局域网** — 生成的 `.enhanced_config.yaml` 会继承源配置的 `bind-address: "*"`，导致即使未显式开启 `allow-lan`，代理监听端口也会绑定到所有网卡。在共享网络环境下，同局域网的其他设备可以在 UI 毫无提示的情况下将流量路由进你的代理。现在生成配置时默认写入 `allow-lan: false` 和 `bind-address: 127.0.0.1`；若源配置明确声明了 `allow-lan: true`，则保留原值不变。感谢 @JackeyLov5 同时报告了这两个问题。(#75)
-- **Help 菜单 Lab 项现已支持独立显示/隐藏** — 「Send Feedback…」「Copy Diagnostic Info…」「Open Crash Log Folder」现在可以在菜单栏显示设置中单独控制，与其他所有菜单项一致。「Roll Back to Stable…」开关现在只在 Lab 构建中显示，Stable 用户不会再看到一个无任何效果的开关。当 Lab Help 块的所有子项均被隐藏时，上方的分隔线也会自动隐藏。感谢 @ayangweb 的贡献。(#112)
+- **增强模式现在会尊重你的 `tun.stack` 设置** — 之前生成的 `.enhanced_config.yaml` 硬编码 `stack: mixed`，会静默覆盖用户配置的 `tun.stack`。如果你配置了 `system`（或 `gvisor`），控制台却显示 `mixed`，改回去也不生效。现在 ClashFX 会从源配置读取 `tun.stack`，按 `system`/`gvisor`/`mixed`（不区分大小写）校验，仅在未设置或非法时才回退到 `mixed`。内置核心与外部核心两条路径使用同一个解析结果，不会再不一致。(#115)
+- **控制台主题与列设置现在能持久保存** — 增强模式下外部控制器每次启动都分配随机端口，导致 Yacd 控制台的 origin（`127.0.0.1:端口`）每次都变，其按 origin 隔离的 `localStorage`（主题、自定义列）看起来被重置。现在 ClashFX 固定使用稳定的控制器端口（`19090`），仅当该端口被占用时才回退到随机空闲端口，从而让控制台 origin —— 以及你保存的偏好 —— 在多次启动间保持稳定。(#115)
+- **增强模式启动更稳健** — 开启增强模式时，若外部核心绑定失败（例如瞬时端口竞争，或残留的 `mihomo_core` 进程仍占用控制器端口），现在会自动重试一次。每次重试都会用新端口重新生成配置，而不是直接报错，因此开启增强模式更不容易失败、无需手动重试。
+- **重新打开 ClashFX 时会弹出菜单栏图标** — 当 ClashFX 已在运行、你又从访达 / Spotlight / 启动台 / Dock 再次打开它时，现在会自动弹出菜单栏菜单，方便你定位图标 —— 在菜单栏拥挤、图标被隐藏时尤其有用。感谢 @hangox 的建议。(#114)
 
 ### 贡献者
 
-- @ayangweb — Help 菜单 Lab 项独立显示/隐藏 (#112)
-- @JackeyLov5 — 提供详细增强模式日志和复现步骤，准确定位了节点超时与 LAN 暴露两个 bug (#75)
+- @hangox — 建议在重复打开已运行的 app 时显示菜单栏项 (#114)
