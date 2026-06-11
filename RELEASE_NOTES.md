@@ -1,20 +1,24 @@
 ### Bug Fixes
 
-- **Subscription Summary No Longer Widens the Menu** — Long remote subscription usage/expiry text in the menu bar now gets shortened in the visible menu item, preventing the whole ClashFX menu from stretching wider than the screen. The full summary is still available via the item tooltip. (#120)
+- **Menu Bar Speed Indicator No Longer Shakes** — The upload/download speed text now redraws inside a stable menu bar item width instead of resizing the whole status item whenever the number of digits changes, so nearby menu bar icons no longer jump when speeds cross values like `9.xx` → `10.xx`. (#122)
+- **Enhanced Mode Restore Is More Reliable After Restart** — When ClashFX launches with Enhanced Mode previously enabled, it now retries the restore flow for up to about one minute while the privileged helper and external core come online. This avoids giving up after a single early attempt during app or macOS startup. (#123)
 
 ### Contributors
 
-- @xinggaoya — Reported the oversized subscription summary in the menu bar (#120)
+- @pengtalk — Reported the menu bar speed indicator width jitter (#122)
+- @pengtalk — Reported Enhanced Mode not reliably restoring after restart (#123)
 
 ---
 
 ### 修复
 
-- **订阅摘要不再撑宽菜单** — 菜单栏里的远程订阅用量 / 到期时间过长时，现在会在可见菜单项中自动截断，避免整个 ClashFX 菜单被撑到超过屏幕宽度。完整摘要仍会保留在该菜单项的 tooltip 里。(#120)
+- **菜单栏网速显示不再抖动** — 上传 / 下载速度文字现在会在固定宽度的菜单栏区域内重绘，不再因为数字位数变化而调整整个状态栏图标宽度，因此网速从 `9.xx` 变成 `10.xx` 时旁边图标不会再跳动。(#122)
+- **增强模式重启恢复更可靠** — 如果退出或重启前已开启增强模式，ClashFX 启动后现在会在约一分钟内持续重试恢复流程，等待 privileged helper 和外部核心就绪，避免在应用或系统刚启动时只尝试一次就放弃。(#123)
 
 ### 贡献者
 
-- @xinggaoya — 反馈订阅摘要导致菜单栏弹层过宽的问题 (#120)
+- @pengtalk — 反馈菜单栏网速显示宽度变化导致图标抖动的问题 (#122)
+- @pengtalk — 反馈重启后增强模式不能稳定自动恢复的问题 (#123)
 
 <!-- Previous release notes -->
 
