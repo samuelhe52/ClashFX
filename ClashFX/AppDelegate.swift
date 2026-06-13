@@ -56,6 +56,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var lastStreamResetTime: Date = .distantPast
     private var pendingStreamResetWork: DispatchWorkItem?
+    private weak var advancedTunMenuItem: NSMenuItem?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         Logger.log("applicationWillFinishLaunching")
@@ -80,6 +81,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         statusItemView.updateSize(width: statusItemLengthWithSpeed)
         statusMenu.delegate = self
         setupStatusMenuItemData()
+        installAdvancedTunMenuItem()
         DispatchQueue.main.async {
             self.postFinishLaunching()
         }
@@ -685,6 +687,91 @@ extension AppDelegate {
         }
     }
 
+    private func installAdvancedTunMenuItem() {
+        let item = NSMenuItem(
+            title: NSLocalizedString("Advanced TUN Settings...", comment: ""),
+            action: #selector(showAdvancedTunSettings(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        let parentMenu = enhancedModeMenuItem.menu ?? statusMenu
+        let insertIndex = (parentMenu?.index(of: enhancedModeMenuItem) ?? -1) + 1
+        if let menu = parentMenu, insertIndex > 0 {
+            menu.insertItem(item, at: insertIndex)
+        } else {
+            statusMenu.addItem(item)
+        }
+        advancedTunMenuItem = item
+    }
+
+    @objc func showAdvancedTunSettings(_ sender: Any?) {
+        let alert = NSAlert()
+        alert.messageText = NSLocalizedString("Advanced TUN Settings", comment: "")
+        alert.informativeText = NSLocalizedString(
+            "MTU 1500 matches the real internet path. Pinning Interface can avoid macOS sleep/wake auto-detect issues. Toggle Enhanced Mode off then on to apply.",
+            comment: ""
+        )
+        alert.addButton(withTitle: NSLocalizedString("Apply", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("Cancel", comment: ""))
+
+        let mtuField = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 22))
+        mtuField.placeholderString = "\(Settings.defaultTunMTU)"
+        mtuField.stringValue = "\(Settings.tunMTU)"
+
+        let mtuLabel = NSTextField(labelWithString: String(
+            format: NSLocalizedString("TUN MTU (%d-%d):", comment: ""),
+            Settings.minTunMTU, Settings.maxTunMTU
+        ))
+
+        let ifaceField = NSTextField(frame: NSRect(x: 0, y: 0, width: 280, height: 22))
+        ifaceField.placeholderString = "en0"
+        ifaceField.stringValue = Settings.tunInterfaceName
+
+        let ifaceLabel = NSTextField(labelWithString: NSLocalizedString(
+            "Interface (empty = auto-detect):",
+            comment: ""
+        ))
+
+        let routeExcludes = NSTextView(frame: NSRect(x: 0, y: 0, width: 280, height: 70))
+        routeExcludes.string = Settings.tunRouteExcludeRawText.isEmpty
+            ? Settings.normalizeAndPersistTunRouteExcludeList().joined(separator: ",\n")
+            : Settings.tunRouteExcludeRawText
+
+        let routeLabel = NSTextField(labelWithString: NSLocalizedString(
+            "Route exclusions:",
+            comment: ""
+        ))
+
+        let stack = NSStackView(views: [mtuLabel, mtuField, ifaceLabel, ifaceField, routeLabel, routeExcludes])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.frame = NSRect(x: 0, y: 0, width: 300, height: 220)
+
+        alert.accessoryView = stack
+
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+
+        let trimmedMTU = mtuField.stringValue.trimmingCharacters(in: .whitespaces)
+        if let mtu = Int(trimmedMTU), mtu >= Settings.minTunMTU, mtu <= Settings.maxTunMTU {
+            Settings.tunMTU = mtu
+        } else if !trimmedMTU.isEmpty {
+            NSUserNotificationCenter.default.postConfigErrorNotice(
+                msg: NSLocalizedString("Invalid MTU. Kept previous value.", comment: "")
+            )
+        }
+        Settings.tunInterfaceName = ifaceField.stringValue.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        Settings.tunRouteExcludeRawText = routeExcludes.string
+        Settings.tunRouteExcludeList = Settings.normalizeTunRouteExcludeEntries(
+            routeExcludes.string
+                .components(separatedBy: CharacterSet(charactersIn: ",\n\r"))
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+        )
+    }
+
     private func enableEnhancedMode(completion: @escaping (String?) -> Void) {
         let tempConfigPath = kConfigFolderPath + ".enhanced_config.yaml"
         let selectedConfigPath = Paths.localConfigPath(for: ConfigManager.selectConfigName)
@@ -692,7 +779,10 @@ extension AppDelegate {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let writeResult = clashWriteEnhancedConfig(
                 selectedConfigPath.goStringBuffer(),
-                tempConfigPath.goStringBuffer()
+                tempConfigPath.goStringBuffer(),
+                Settings.normalizeAndPersistTunRouteExcludeList().joined(separator: ",").goStringBuffer(),
+                GoUint32(Settings.tunMTU),
+                Settings.tunInterfaceName.goStringBuffer()
             )?.toString() ?? ""
 
             DispatchQueue.main.async {

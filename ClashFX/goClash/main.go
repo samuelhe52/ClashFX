@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -24,6 +25,7 @@ import (
 	"unsafe"
 
 	bbolt "github.com/metacubex/bbolt"
+	"github.com/metacubex/mihomo/common/convert"
 	"github.com/metacubex/mihomo/component/mmdb"
 	"github.com/metacubex/mihomo/component/profile/cachefile"
 	"github.com/metacubex/mihomo/config"
@@ -40,13 +42,26 @@ import (
 )
 
 var (
-	secretOverride  string = ""
-	enableIPV6      bool   = false
-	tunEnabled      bool   = false
-	tunMu           sync.Mutex
-	savedUIPath     string
-	callbacksPaused int32 // atomic: 0=active, 1=paused
+	secretOverride     string = ""
+	enableIPV6         bool   = false
+	tunEnabled         bool   = false
+	tunRouteExcludeRaw string = ""
+	tunMTUValue        uint32 = 0
+	tunInterfaceName   string = ""
+	tunMu              sync.Mutex
+	savedUIPath        string
+	callbacksPaused    int32        // atomic: 0=active, 1=paused
+	userTunStackRaw    atomic.Value // string; race-free across config reload vs enhanced-mode toggle
 )
+
+const defaultTunMTU uint32 = 1500
+const enhancedControllerPort = 19090
+
+var enhancedCoreProcessDirectRules = []string{
+	"PROCESS-NAME,mihomo,DIRECT",
+	"PROCESS-NAME,mihomo-bin,DIRECT",
+	"PROCESS-NAME,mihomo_core,DIRECT",
+}
 
 func isAddrValid(addr string) bool {
 	if addr != "" {
@@ -82,6 +97,258 @@ func checkPortAvailable(port int) bool {
 	_ = l.Close()
 	log.Infoln("check port %d success", port)
 	return true
+}
+
+func mergeUniqueStrings(base []string, additions []string) []string {
+	seen := make(map[string]struct{}, len(base)+len(additions))
+	result := make([]string, 0, len(base)+len(additions))
+	for _, item := range base {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	for _, item := range additions {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		result = append(result, trimmed)
+	}
+	return result
+}
+
+func parseEntryAsPrefix(s string) (netip.Prefix, bool) {
+	if prefix, err := netip.ParsePrefix(s); err == nil {
+		return prefix.Masked(), true
+	}
+	if ip, err := netip.ParseAddr(s); err == nil {
+		bits := 32
+		if ip.Is6() {
+			bits = 128
+		}
+		return netip.PrefixFrom(ip, bits), true
+	}
+	if prefix, ok := legacyWildcardTunRouteExcludePrefix(s); ok {
+		return prefix, true
+	}
+	return netip.Prefix{}, false
+}
+
+func legacyWildcardTunRouteExcludePrefix(s string) (netip.Prefix, bool) {
+	switch s {
+	case "10.*":
+		prefix, _ := netip.ParsePrefix("10.0.0.0/8")
+		return prefix, true
+	case "192.168.*":
+		prefix, _ := netip.ParsePrefix("192.168.0.0/16")
+		return prefix, true
+	}
+
+	if !strings.HasPrefix(s, "172.") || !strings.HasSuffix(s, ".*") {
+		return netip.Prefix{}, false
+	}
+	parts := strings.Split(s, ".")
+	if len(parts) != 3 {
+		return netip.Prefix{}, false
+	}
+	secondOctet, err := strconv.Atoi(parts[1])
+	if err != nil || secondOctet < 16 || secondOctet > 31 {
+		return netip.Prefix{}, false
+	}
+	prefix, _ := netip.ParsePrefix(fmt.Sprintf("172.%d.0.0/16", secondOctet))
+	return prefix, true
+}
+
+func isTunFakeIPFilterEntry(s string) bool {
+	if s == "" || strings.ContainsAny(s, " \t/") {
+		return false
+	}
+	name := strings.TrimPrefix(strings.TrimPrefix(s, "*."), "+.")
+	if name == "" {
+		return false
+	}
+	for _, label := range strings.Split(name, ".") {
+		if label == "" || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+			return false
+		}
+		for _, r := range label {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
+				continue
+			}
+			return false
+		}
+	}
+	return true
+}
+
+func splitTunRouteExcludeEntries(raw string) ([]netip.Prefix, []string, []string) {
+	var prefixes []netip.Prefix
+	var domains []string
+	var invalid []string
+
+	for _, item := range strings.Split(raw, ",") {
+		entry := strings.TrimSpace(item)
+		if entry == "" {
+			continue
+		}
+		if prefix, ok := parseEntryAsPrefix(entry); ok {
+			prefixes = append(prefixes, prefix)
+			continue
+		}
+		if isTunFakeIPFilterEntry(entry) {
+			domains = append(domains, entry)
+			continue
+		}
+		invalid = append(invalid, entry)
+	}
+
+	return prefixes, domains, invalid
+}
+
+func applyTunRouteExclusions(rawCfg *config.RawConfig) error {
+	prefixes, domains, invalid := splitTunRouteExcludeEntries(tunRouteExcludeRaw)
+	if len(invalid) > 0 {
+		return fmt.Errorf("invalid TUN route exclude entries: %s", strings.Join(invalid, ", "))
+	}
+	if len(prefixes) > 0 {
+		rawCfg.Tun.RouteExcludeAddress = mergeUniquePrefixes(rawCfg.Tun.RouteExcludeAddress, prefixes)
+	}
+	if len(domains) > 0 {
+		rawCfg.DNS.FakeIPFilter = mergeUniqueStrings(rawCfg.DNS.FakeIPFilter, domains)
+	}
+	return nil
+}
+
+func mergeUniquePrefixes(base []netip.Prefix, additions []netip.Prefix) []netip.Prefix {
+	seen := make(map[string]struct{}, len(base)+len(additions))
+	result := make([]netip.Prefix, 0, len(base)+len(additions))
+	for _, item := range base {
+		key := item.Masked().String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, item.Masked())
+	}
+	for _, item := range additions {
+		masked := item.Masked()
+		key := masked.String()
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, masked)
+	}
+	return result
+}
+
+func mergeInterfaceSlice(base interface{}, additions []string) []interface{} {
+	var existing []string
+	switch value := base.(type) {
+	case []interface{}:
+		for _, item := range value {
+			if str, ok := item.(string); ok {
+				existing = append(existing, str)
+			}
+		}
+	case []string:
+		existing = append(existing, value...)
+	}
+	merged := mergeUniqueStrings(existing, additions)
+	result := make([]interface{}, 0, len(merged))
+	for _, item := range merged {
+		result = append(result, item)
+	}
+	return result
+}
+
+func prependUniqueRules(rawMap map[string]interface{}, additions []string) {
+	existingRules, _ := rawMap["rules"].([]interface{})
+	newRules := make([]interface{}, 0, len(existingRules)+len(additions))
+	for _, rule := range additions {
+		if !interfaceSliceContainsString(existingRules, rule) {
+			newRules = append(newRules, rule)
+		}
+	}
+	newRules = append(newRules, existingRules...)
+	rawMap["rules"] = newRules
+}
+
+func interfaceSliceContainsString(items []interface{}, target string) bool {
+	for _, item := range items {
+		if rule, ok := item.(string); ok && rule == target {
+			return true
+		}
+	}
+	return false
+}
+
+func lockEnhancedLanBinding(rawMap map[string]interface{}) {
+	if allowLan, _ := rawMap["allow-lan"].(bool); allowLan {
+		return
+	}
+	rawMap["allow-lan"] = false
+	rawMap["bind-address"] = "127.0.0.1"
+}
+
+func resolveTunStack(userValue string) string {
+	switch strings.ToLower(strings.TrimSpace(userValue)) {
+	case "system":
+		return "system"
+	case "gvisor":
+		return "gvisor"
+	case "mixed":
+		return "mixed"
+	default:
+		return "mixed"
+	}
+}
+
+func mergePrefixInterfaceSlice(base interface{}, additions []netip.Prefix) []interface{} {
+	var existing []netip.Prefix
+	switch value := base.(type) {
+	case []interface{}:
+		for _, item := range value {
+			if str, ok := item.(string); ok {
+				if prefix, ok := parseEntryAsPrefix(str); ok {
+					existing = append(existing, prefix)
+				}
+			}
+		}
+	case []string:
+		for _, item := range value {
+			if prefix, ok := parseEntryAsPrefix(item); ok {
+				existing = append(existing, prefix)
+			}
+		}
+	case []netip.Prefix:
+		existing = append(existing, value...)
+	}
+	merged := mergeUniquePrefixes(existing, additions)
+	result := make([]interface{}, 0, len(merged))
+	for _, item := range merged {
+		result = append(result, item.String())
+	}
+	return result
+}
+
+func ensureDefaultProxyPort(rawMap map[string]interface{}) {
+	mixedPort, _ := rawMap["mixed-port"].(int)
+	httpPort, _ := rawMap["port"].(int)
+	socksPort, _ := rawMap["socks-port"].(int)
+	if mixedPort == 0 && httpPort == 0 && socksPort == 0 {
+		rawMap["mixed-port"] = 7890
+	}
 }
 
 //export initClashCore
@@ -120,7 +387,26 @@ func getRawCfg() (*config.RawConfig, error) {
 		return nil, err
 	}
 
+	userTunStackRaw.Store(extractRawTunStack(buf))
 	return config.UnmarshalRawConfig(buf)
+}
+
+func extractRawTunStack(buf []byte) string {
+	var probe map[string]interface{}
+	if err := yaml.Unmarshal(buf, &probe); err != nil {
+		return ""
+	}
+	tun, ok := probe["tun"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+	stack, _ := tun["stack"].(string)
+	return stack
+}
+
+func loadUserTunStackRaw() string {
+	s, _ := userTunStackRaw.Load().(string)
+	return s
 }
 
 func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint32, externalController string) (*config.Config, error) {
@@ -193,6 +479,10 @@ func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint3
 	tunMu.Lock()
 	if tunEnabled {
 		applyTunConfig(rawCfg)
+		if err := applyTunRouteExclusions(rawCfg); err != nil {
+			tunMu.Unlock()
+			return nil, err
+		}
 	}
 	tunMu.Unlock()
 
@@ -221,12 +511,24 @@ func parseDefaultConfigThenStart(checkPort, allowLan, ipv6 bool, proxyPort uint3
 // Must be called while tunMu is held.
 func applyTunConfig(rawCfg *config.RawConfig) {
 	rawCfg.Tun.Enable = true
-	rawCfg.Tun.Stack = constant.TunMixed
+	if err := (&rawCfg.Tun.Stack).UnmarshalText([]byte(resolveTunStack(loadUserTunStackRaw()))); err != nil {
+		rawCfg.Tun.Stack = constant.TunMixed
+	}
 	rawCfg.Tun.AutoRoute = true
-	rawCfg.Tun.AutoDetectInterface = true
 	rawCfg.Tun.StrictRoute = true
 	rawCfg.Tun.DNSHijack = []string{"any:53", "tcp://any:53"}
-	rawCfg.Tun.MTU = 9000
+	if tunMTUValue > 0 {
+		rawCfg.Tun.MTU = tunMTUValue
+	} else {
+		rawCfg.Tun.MTU = defaultTunMTU
+	}
+
+	if tunInterfaceName != "" {
+		rawCfg.Interface = tunInterfaceName
+		rawCfg.Tun.AutoDetectInterface = false
+	} else {
+		rawCfg.Tun.AutoDetectInterface = true
+	}
 
 	// TUN mode requires DNS with fake-ip or redir-host
 	if !rawCfg.DNS.Enable {
@@ -248,24 +550,188 @@ func applyTunConfig(rawCfg *config.RawConfig) {
 		rawCfg.DNS.DefaultNameserver = []string{
 			"114.114.114.114",
 			"223.5.5.5",
-			"8.8.8.8",
+			"119.29.29.29",
 		}
 	}
+}
+
+func applyEnhancedInterfaceName(rawMap map[string]interface{}, ifaceName string) {
+	if ifaceName != "" {
+		rawMap["interface-name"] = ifaceName
+		return
+	}
+	delete(rawMap, "interface-name")
 }
 
 //export verifyClashConfig
 func verifyClashConfig(content *C.char) *C.char {
 
 	b := []byte(C.GoString(content))
-	cfg, err := executor.ParseWithBytes(b)
+	rawCfg, err := config.UnmarshalRawConfig(b)
 	if err != nil {
 		return C.CString(err.Error())
 	}
-
-	if len(cfg.Proxies) < 1 {
-		return C.CString("No proxy found in config")
+	if _, err := config.ParseRawConfig(rawCfg); err != nil {
+		return C.CString(err.Error())
 	}
+
 	return C.CString("success")
+}
+
+func nameserverPolicyForConvertedProxies(proxies []map[string]interface{}) map[string]interface{} {
+	policy := make(map[string]interface{})
+	for _, proxy := range proxies {
+		server, ok := proxy["server"].(string)
+		if !ok || server == "" {
+			continue
+		}
+		if net.ParseIP(server) != nil {
+			continue
+		}
+		policy[server] = "https://223.5.5.5/dns-query"
+	}
+	return policy
+}
+
+func isSubscriptionInfoProxyName(name string) bool {
+	containsMarkers := []string{
+		"剩余流量", "套餐到期", "过滤掉", "官网", "订阅", "用户群",
+	}
+	for _, marker := range containsMarkers {
+		if strings.Contains(name, marker) {
+			return true
+		}
+	}
+
+	lowerName := strings.ToLower(strings.TrimSpace(name))
+	prefixMarkers := []string{"traffic", "expire", "expired", "remaining traffic", "subscription"}
+	for _, marker := range prefixMarkers {
+		if strings.HasPrefix(lowerName, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+//export clashConvertShareLinks
+func clashConvertShareLinks(content *C.char) *C.char {
+	proxies, err := convert.ConvertsV2Ray([]byte(C.GoString(content)))
+	if err != nil {
+		return C.CString("error:" + err.Error())
+	}
+
+	filteredProxies := make([]map[string]interface{}, 0, len(proxies))
+	names := make([]string, 0, len(proxies))
+	for _, proxy := range proxies {
+		if name, ok := proxy["name"].(string); ok && name != "" {
+			if isSubscriptionInfoProxyName(name) {
+				continue
+			}
+			filteredProxies = append(filteredProxies, proxy)
+			names = append(names, name)
+		}
+	}
+	if len(names) == 0 {
+		return C.CString("error:converted subscription did not contain proxy names")
+	}
+	nameserverPolicy := nameserverPolicyForConvertedProxies(filteredProxies)
+	benchmarkURL := "http://YouTube.com/generate_204"
+	dns := map[string]interface{}{
+		"enable":        true,
+		"listen":        "127.0.0.1:1053",
+		"ipv6":          true,
+		"enhanced-mode": "redir-host",
+		"default-nameserver": []string{
+			"114.114.114.114",
+			"223.5.5.5",
+			"119.29.29.29",
+		},
+		"nameserver": []string{
+			"https://223.5.5.5/dns-query",
+			"https://doh.pub/dns-query",
+			"119.29.29.29",
+			"223.5.5.5",
+			"tls://223.5.5.5:853",
+			"tls://223.6.6.6:853",
+		},
+		"fallback": []string{
+			"https://223.5.5.5/dns-query",
+			"https://doh.pub/dns-query",
+			"tls://1.1.1.1:853",
+			"tls://8.8.8.8:853",
+		},
+		"fallback-filter": map[string]interface{}{
+			"geoip": false,
+		},
+	}
+	if len(nameserverPolicy) > 0 {
+		dns["nameserver-policy"] = nameserverPolicy
+	}
+
+	rawMap := map[string]interface{}{
+		"mode":                    "rule",
+		"log-level":               "info",
+		"mixed-port":              7890,
+		"allow-lan":               false,
+		"bind-address":            "*",
+		"ipv6":                    true,
+		"udp":                     true,
+		"unified-delay":           true,
+		"cfw-latency-timeout":     8000,
+		"cfw-latency-url":         benchmarkURL,
+		"cfw-conn-break-strategy": true,
+		"dns":                     dns,
+		"proxies":                 filteredProxies,
+		"proxy-groups": []map[string]interface{}{
+			{
+				"name":    "Proxy",
+				"type":    "select",
+				"proxies": append([]string{"Auto", "DIRECT"}, names...),
+			},
+			{
+				"name":      "Auto",
+				"type":      "url-test",
+				"proxies":   names,
+				"url":       benchmarkURL,
+				"interval":  300,
+				"tolerance": 200,
+			},
+		},
+		"rules": []string{
+			"DOMAIN,localhost,DIRECT",
+			"DOMAIN-SUFFIX,local,DIRECT",
+			"DOMAIN-SUFFIX,cn,DIRECT",
+			"DOMAIN,www.baidu.com,DIRECT",
+			"DOMAIN,baidu.com,DIRECT",
+			"DOMAIN-KEYWORD,baidu,DIRECT",
+			"DOMAIN-SUFFIX,baidu.com,DIRECT",
+			"DOMAIN-SUFFIX,bdimg.com,DIRECT",
+			"DOMAIN-SUFFIX,bdstatic.com,DIRECT",
+			"IP-CIDR,127.0.0.0/8,DIRECT,no-resolve",
+			"IP-CIDR,10.0.0.0/8,DIRECT,no-resolve",
+			"IP-CIDR,172.16.0.0/12,DIRECT,no-resolve",
+			"IP-CIDR,192.168.0.0/16,DIRECT,no-resolve",
+			"IP-CIDR,100.64.0.0/10,DIRECT,no-resolve",
+			"IP-CIDR,169.254.0.0/16,DIRECT,no-resolve",
+			"IP-CIDR,224.0.0.0/4,DIRECT,no-resolve",
+			"IP-CIDR6,::1/128,DIRECT,no-resolve",
+			"IP-CIDR6,fc00::/7,DIRECT,no-resolve",
+			"IP-CIDR6,fe80::/10,DIRECT,no-resolve",
+			"MATCH,Proxy",
+		},
+	}
+
+	data, err := yaml.Marshal(rawMap)
+	if err != nil {
+		return C.CString("error:" + err.Error())
+	}
+
+	header := "# clashfx-generated: share-links\n" +
+		"# clashfx-template-version: 8\n" +
+		"# This file was auto-generated by ClashFX from share-link subscriptions.\n" +
+		"# It is a compatibility config, not a user-authored rule file.\n" +
+		"# Current template: mihomo share-link converter + DNS policy + geodata-free rules.\n"
+	return C.CString(header + string(data))
 }
 
 //export clashSetupLogger
@@ -451,6 +917,10 @@ func clashSetTunEnabled(enabled bool) *C.char {
 	tunMu.Lock()
 	if tunEnabled {
 		applyTunConfig(rawCfg)
+		if err := applyTunRouteExclusions(rawCfg); err != nil {
+			tunMu.Unlock()
+			return C.CString(err.Error())
+		}
 	} else {
 		rawCfg.Tun.Enable = false
 	}
@@ -522,7 +992,20 @@ func clashResumeCore() *C.char {
 }
 
 //export clashWriteEnhancedConfig
-func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char) *C.char {
+func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char, tunRouteExcludeList *C.char, tunMTUParam C.uint, tunInterfaceNameParam *C.char) *C.char {
+	excludeRaw := C.GoString(tunRouteExcludeList)
+	ifaceName := strings.TrimSpace(C.GoString(tunInterfaceNameParam))
+	mtuParam := uint32(tunMTUParam)
+	tunMu.Lock()
+	tunRouteExcludeRaw = excludeRaw
+	tunMTUValue = mtuParam
+	tunInterfaceName = ifaceName
+	tunMu.Unlock()
+
+	effectiveMTU := mtuParam
+	if effectiveMTU == 0 {
+		effectiveMTU = defaultTunMTU
+	}
 	srcPath := C.GoString(configPath)
 	if srcPath == "" {
 		srcPath = constant.Path.Config()
@@ -537,14 +1020,26 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char) *C.char {
 		return C.CString("error:" + err.Error())
 	}
 
+	userTunStack := ""
+	if existingTun, ok := rawMap["tun"].(map[string]interface{}); ok {
+		if s, ok := existingTun["stack"].(string); ok {
+			userTunStack = s
+		}
+	}
 	rawMap["tun"] = map[string]interface{}{
 		"enable":                true,
-		"stack":                 "mixed",
+		"stack":                 resolveTunStack(userTunStack),
 		"auto-route":            true,
-		"auto-detect-interface": true,
+		"auto-detect-interface": ifaceName == "",
 		"strict-route":          true,
 		"dns-hijack":            []string{"any:53", "tcp://any:53"},
-		"mtu":                   9000,
+		"mtu":                   effectiveMTU,
+	}
+	applyEnhancedInterfaceName(rawMap, ifaceName)
+
+	prefixes, domains, invalid := splitTunRouteExcludeEntries(excludeRaw)
+	if len(invalid) > 0 {
+		return C.CString("error:invalid TUN route exclude entries: " + strings.Join(invalid, ", "))
 	}
 
 	dns, _ := rawMap["dns"].(map[string]interface{})
@@ -552,6 +1047,9 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char) *C.char {
 		dns = map[string]interface{}{}
 	}
 	dns["enable"] = true
+	if len(domains) > 0 {
+		dns["fake-ip-filter"] = mergeInterfaceSlice(dns["fake-ip-filter"], domains)
+	}
 	if mode, _ := dns["enhanced-mode"].(string); mode == "" || mode == "normal" {
 		dns["enhanced-mode"] = "fake-ip"
 	}
@@ -562,7 +1060,7 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char) *C.char {
 		dns["nameserver"] = []string{"https://doh.pub/dns-query", "tls://223.5.5.5:853"}
 	}
 	if dns["default-nameserver"] == nil {
-		dns["default-nameserver"] = []string{"114.114.114.114", "223.5.5.5", "8.8.8.8"}
+		dns["default-nameserver"] = []string{"114.114.114.114", "223.5.5.5", "119.29.29.29"}
 	}
 	// Use a free port for DNS listen to avoid conflict with in-process clash core
 	if dnsPort, err := freeport.GetFreePort(); err == nil {
@@ -571,12 +1069,19 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char) *C.char {
 		dns["listen"] = "127.0.0.1:11053"
 	}
 	rawMap["dns"] = dns
-
-	if port, err := freeport.GetFreePort(); err == nil {
-		rawMap["external-controller"] = "127.0.0.1:" + strconv.Itoa(port)
-	} else {
-		rawMap["external-controller"] = "127.0.0.1:19090"
+	if len(prefixes) > 0 {
+		tunMap, _ := rawMap["tun"].(map[string]interface{})
+		tunMap["route-exclude-address"] = mergePrefixInterfaceSlice(tunMap["route-exclude-address"], prefixes)
+		rawMap["tun"] = tunMap
 	}
+
+	ecPort := enhancedControllerPort
+	if !checkPortAvailable(ecPort) {
+		if p, err := freeport.GetFreePort(); err == nil {
+			ecPort = p
+		}
+	}
+	rawMap["external-controller"] = "127.0.0.1:" + strconv.Itoa(ecPort)
 	ec := rawMap["external-controller"].(string)
 
 	if secretOverride != "" {
@@ -586,6 +1091,7 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char) *C.char {
 	if savedUIPath != "" {
 		rawMap["external-ui"] = savedUIPath
 	}
+	lockEnhancedLanBinding(rawMap)
 
 	profile, _ := rawMap["profile"].(map[string]interface{})
 	if profile == nil {
@@ -594,12 +1100,8 @@ func clashWriteEnhancedConfig(configPath *C.char, outputPath *C.char) *C.char {
 	profile["store-selected"] = true
 	rawMap["profile"] = profile
 
-	mixedPort, _ := rawMap["mixed-port"].(int)
-	httpPort, _ := rawMap["port"].(int)
-	socksPort, _ := rawMap["socks-port"].(int)
-	if mixedPort == 0 && httpPort == 0 && socksPort == 0 {
-		rawMap["mixed-port"] = 7890
-	}
+	ensureDefaultProxyPort(rawMap)
+	prependUniqueRules(rawMap, enhancedCoreProcessDirectRules)
 
 	data, err := yaml.Marshal(rawMap)
 	if err != nil {
