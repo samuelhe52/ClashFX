@@ -1,24 +1,38 @@
+### New Features
+
+- **Profile Mixin for Runtime Configs** — The Config menu now includes a Profile Mixin editor backed by `~/.config/clashfx/.profile_mixin.yaml`. ClashFX applies that mixin at runtime for reloads and Enhanced Mode without rewriting subscription files, so custom proxy groups/rules can survive profile updates. (#129)
+- **Turn Off All Proxy Modes** — A new tray menu action can disable both System Proxy and Enhanced Mode at once, with a tray-menu visibility setting so users can show or hide the shortcut. (#130)
+- **Use Custom Enhanced Mode Config As-Is** — Advanced TUN Settings now has an opt-in switch that starts Enhanced Mode from the selected/runtime config without injecting ClashFX's generated TUN/DNS settings. Users who maintain their own complete `tun`, fake-IP DNS, `external-controller`, and `allow-lan` config can run it directly. (#118)
+
 ### Bug Fixes
 
-- **Menu Bar Status Item Uses Less Space** — The upload/download speed indicator now sizes the macOS menu bar item from the actual rendered speed text instead of reserving a wide fixed block, keeping ClashFX compact in crowded menu bars while still expanding when longer speeds need room. (#127)
-- **Enhanced Mode Toggle No Longer Rebuilds the Menu Immediately** — After enabling or disabling Enhanced Mode, ClashFX now coalesces and slightly delays the config/stream/proxy-menu refresh work so quickly reopening the menu does not visibly freeze or flash during the toggle completion. (#125)
+- **Menu Bar Speed Display Is More Compact and Stable** — The menu bar upload/download speed now uses a short formatter and fixed-width numeric rendering, reducing wasted menu bar space while preventing nearby icons from jumping as speeds change. (#122, #127)
 
 ### Contributors
 
 - @qzxwj — Reported the menu bar status item occupying too much width (#127)
-- @ljssafe — Reported the post-toggle Enhanced Mode menu freeze/flash (#125)
+- @SJH21408 — Requested a one-click way to turn off proxy modes (#130)
+- @ymeng98 — Requested persistent custom profile mixins (#129)
+- @nmmsb666 — Requested custom Enhanced Mode configs to be used as-is (#118)
 
 ---
 
+### 新功能
+
+- **运行时 Profile Mixin** — Config 菜单现在提供 Profile Mixin 编辑入口，对应 `~/.config/clashfx/.profile_mixin.yaml`。ClashFX 会在 reload 和 Enhanced Mode 启动时运行时叠加 mixin，不改写订阅原文件，因此自定义策略组 / 规则可以在订阅更新后继续保留。(#129)
+- **一键关闭所有代理模式** — 托盘菜单新增 Turn Off All Proxy Modes，可同时关闭 System Proxy 和 Enhanced Mode，并提供菜单显示开关，方便按需隐藏或展示。(#130)
+- **Enhanced Mode 可直接使用自定义配置** — Advanced TUN Settings 新增默认关闭的 Use Custom Config as-is 开关；开启后，Enhanced Mode 会直接使用当前选择 / 运行时配置启动，不再注入 ClashFX 生成的 TUN/DNS 设置。适合已自行维护完整 `tun`、fake-IP DNS、`external-controller` 与 `allow-lan` 配置的用户。(#118)
+
 ### 修复
 
-- **菜单栏状态项更省空间** — 上传 / 下载速度显示现在会根据实际渲染出来的文字宽度调整菜单栏项，不再预留过宽的固定区域；菜单栏拥挤时更紧凑，速度文字变长时也仍会自动扩展。(#127)
-- **增强模式切换后不再立刻重建菜单** — 开启或关闭增强模式后，ClashFX 现在会合并并稍微延迟配置同步、stream 重置和代理菜单刷新，避免用户马上重新打开菜单时出现明显卡顿或闪一下。(#125)
+- **菜单栏速度显示更紧凑且稳定** — 上传 / 下载速度现在使用更短的菜单栏专用格式和固定宽度数字渲染，减少菜单栏占用，同时避免速度变化时带动旁边图标跳动。(#122, #127)
 
 ### 贡献者
 
 - @qzxwj — 反馈菜单栏状态项占用宽度偏大的问题 (#127)
-- @ljssafe — 反馈增强模式切换后菜单快速打开会卡顿 / 闪一下的问题 (#125)
+- @SJH21408 — 建议增加一键关闭代理模式 (#130)
+- @ymeng98 — 建议支持持久的 Profile Mixin (#129)
+- @nmmsb666 — 建议 Enhanced Mode 支持直接使用自定义配置 (#118)
 
 <!-- Previous release notes -->
 
