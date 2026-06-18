@@ -101,8 +101,8 @@ class StatusItemView: NSView, StatusItemViewProtocol {
         }
         if needsRedraw {
             speedTextView.update(
-                up: SpeedUtils.getSpeedString(for: up),
-                down: SpeedUtils.getSpeedString(for: down)
+                up: SpeedUtils.getMenuBarSpeedString(for: up),
+                down: SpeedUtils.getMenuBarSpeedString(for: down)
             )
             updateStatusItemWidthIfNeeded()
         }

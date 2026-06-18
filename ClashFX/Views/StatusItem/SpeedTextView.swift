@@ -10,8 +10,10 @@
 import AppKit
 
 class SpeedTextView: NSView {
-    private var upSpeed: String = "0KB/s"
-    private var downSpeed: String = "0KB/s"
+    private static let fixedWidthSample = "999M/s"
+
+    private var upSpeed: String = "0B/s"
+    private var downSpeed: String = "0B/s"
     private let useLegacyLabels: Bool = {
         if #available(macOS 26, *) {
             return false
@@ -61,9 +63,9 @@ class SpeedTextView: NSView {
     }
 
     private static func makeLegacyLabel() -> NSTextField {
-        let label = NSTextField(labelWithString: "0KB/s")
+        let label = NSTextField(labelWithString: "0B/s")
         label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = StatusItemTool.font
+        label.font = StatusItemTool.speedFont
         label.textColor = .labelColor
         label.alignment = .right
         label.backgroundColor = .clear
@@ -75,10 +77,8 @@ class SpeedTextView: NSView {
     }
 
     var textWidth: CGFloat {
-        let attrs: [NSAttributedString.Key: Any] = [.font: StatusItemTool.font]
-        let upWidth = (upSpeed as NSString).size(withAttributes: attrs).width
-        let downWidth = (downSpeed as NSString).size(withAttributes: attrs).width
-        return ceil(max(upWidth, downWidth))
+        let attrs: [NSAttributedString.Key: Any] = [.font: StatusItemTool.speedFont]
+        return ceil((Self.fixedWidthSample as NSString).size(withAttributes: attrs).width)
     }
 
     func update(up: String, down: String) {
@@ -106,10 +106,10 @@ class SpeedTextView: NSView {
     override func draw(_ dirtyRect: NSRect) {
         guard !useLegacyLabels else { return }
 
-        let font = StatusItemTool.font
+        let font = StatusItemTool.speedFont
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: NSColor.labelColor
         ]
 
         let upSize = (upSpeed as NSString).size(withAttributes: attrs)

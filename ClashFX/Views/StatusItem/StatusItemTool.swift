@@ -114,4 +114,8 @@ enum StatusItemTool {
         }
         return font
     }()
+
+    static let speedFont = NSFont(name: "Menlo", size: 9)
+        ?? NSFont.userFixedPitchFont(ofSize: 9)
+        ?? NSFont.monospacedDigitSystemFont(ofSize: 9, weight: .regular)
 }
