@@ -62,6 +62,7 @@ class TrayMenuSettingView: NSView {
                 getter: { Settings.trayMenuShowProxyActions },
                 setter: { Settings.trayMenuShowProxyActions = $0 },
                 children: [
+                    ItemRow(title: NSLocalizedString("Turn Off All Proxy Modes", comment: ""), getter: { Settings.trayMenuShowTurnOffProxy }, setter: { Settings.trayMenuShowTurnOffProxy = $0 }),
                     ItemRow(title: NSLocalizedString("System Proxy", comment: ""), getter: { Settings.trayMenuShowSystemProxy }, setter: { Settings.trayMenuShowSystemProxy = $0 }),
                     ItemRow(title: NSLocalizedString("Enhanced Mode", comment: ""), getter: { Settings.trayMenuShowEnhancedMode }, setter: { Settings.trayMenuShowEnhancedMode = $0 }),
                     ItemRow(title: NSLocalizedString("Advanced TUN Settings…", comment: ""), getter: { Settings.trayMenuShowAdvancedTun }, setter: { Settings.trayMenuShowAdvancedTun = $0 }),

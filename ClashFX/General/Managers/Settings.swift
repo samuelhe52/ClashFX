@@ -264,6 +264,9 @@ enum Settings {
     @UserDefault("trayMenuShowSystemProxy", defaultValue: true)
     static var trayMenuShowSystemProxy: Bool
 
+    @UserDefault("trayMenuShowTurnOffProxy", defaultValue: true)
+    static var trayMenuShowTurnOffProxy: Bool
+
     @UserDefault("trayMenuShowEnhancedMode", defaultValue: true)
     static var trayMenuShowEnhancedMode: Bool
 
