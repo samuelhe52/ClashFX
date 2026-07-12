@@ -25,7 +25,8 @@ enum StatusItemTool {
         BuiltInMenuIcon(id: "cat-lightning-solid", title: NSLocalizedString("Lightning Cat", comment: ""), resourceName: "menu-cat-lightning-solid"),
         BuiltInMenuIcon(id: "cat-network", title: NSLocalizedString("Network Nodes", comment: ""), resourceName: "menu-cat-network"),
         BuiltInMenuIcon(id: "cat-shield", title: NSLocalizedString("Shield Cat", comment: ""), resourceName: "menu-cat-shield"),
-        BuiltInMenuIcon(id: "cat-lightning-outline", title: NSLocalizedString("Bolt Outline", comment: ""), resourceName: "menu-cat-lightning-outline")
+        BuiltInMenuIcon(id: "cat-lightning-outline", title: NSLocalizedString("Bolt Outline", comment: ""), resourceName: "menu-cat-lightning-outline"),
+        BuiltInMenuIcon(id: "fork-classic", title: NSLocalizedString("Classic Fork Icon", comment: "Menu bar icon picker"), resourceName: "menu-fork-classic")
     ]
 
     static var selectedMenuIconID: String {

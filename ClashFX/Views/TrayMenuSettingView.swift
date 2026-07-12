@@ -116,14 +116,16 @@ class TrayMenuSettingView: NSView {
                 setter: { Settings.trayMenuShowHelp = $0 },
                 children: [
                     ItemRow(title: NSLocalizedString("About", comment: ""), getter: { Settings.trayMenuShowAbout }, setter: { Settings.trayMenuShowAbout = $0 }),
+                ] + (ForkPolicy.officialUpdatesEnabled ? [
                     ItemRow(title: NSLocalizedString("Check for Update", comment: ""), getter: { Settings.trayMenuShowCheckUpdate }, setter: { Settings.trayMenuShowCheckUpdate = $0 }),
+                ] : []) + [
                     ItemRow(title: NSLocalizedString("Log Level", comment: ""), getter: { Settings.trayMenuShowLogLevel }, setter: { Settings.trayMenuShowLogLevel = $0 }),
                     ItemRow(title: NSLocalizedString("Show Log", comment: ""), getter: { Settings.trayMenuShowShowLog }, setter: { Settings.trayMenuShowShowLog = $0 }),
                     ItemRow(title: NSLocalizedString("Ports", comment: ""), getter: { Settings.trayMenuShowPorts }, setter: { Settings.trayMenuShowPorts = $0 }),
                     ItemRow(title: NSLocalizedString("Send Feedback…", comment: ""), getter: { Settings.trayMenuShowFeedback }, setter: { Settings.trayMenuShowFeedback = $0 }),
                     ItemRow(title: NSLocalizedString("Copy Diagnostic Info…", comment: ""), getter: { Settings.trayMenuShowCopyDiagnostic }, setter: { Settings.trayMenuShowCopyDiagnostic = $0 }),
                     ItemRow(title: NSLocalizedString("Open Crash Log Folder", comment: ""), getter: { Settings.trayMenuShowCrashLogs }, setter: { Settings.trayMenuShowCrashLogs = $0 }),
-                ] + (AutoUpgradeManager.isLabBuild ? [
+                ] + (ForkPolicy.officialUpdatesEnabled && AutoUpgradeManager.isLabBuild ? [
                     ItemRow(title: NSLocalizedString("Roll Back to Stable…", comment: ""), getter: { Settings.trayMenuShowRollback }, setter: { Settings.trayMenuShowRollback = $0 }),
                 ] : [])
             )),

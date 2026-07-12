@@ -7,9 +7,6 @@
 //
 
 import Alamofire
-import AppCenter
-import AppCenterAnalytics
-import AppCenterCrashes
 import Cocoa
 import CocoaLumberjack
 import KeyboardShortcuts
@@ -251,7 +248,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         RemoteConfigManager.shared.autoUpdateCheck()
 
         setupNetworkNotifier()
-        registCrashLogger()
         KeyboardShortCutManager.setup()
         RemoteControlManager.setupMenuItem(separator: externalControlSeparator)
         applyTrayMenuVisibility()
@@ -1390,7 +1386,7 @@ extension AppDelegate {
         labHelpMenuItems.append(crashLogs)
         labCrashLogsMenuItem = crashLogs
 
-        if AutoUpgradeManager.isLabBuild {
+        if ForkPolicy.officialUpdatesEnabled, AutoUpgradeManager.isLabBuild {
             let rollback = NSMenuItem(
                 title: NSLocalizedString("Roll Back to Stable…", comment: ""),
                 action: #selector(actionLabRollback(_:)),
@@ -2455,20 +2451,6 @@ extension AppDelegate {
 // MARK: crash hanlder
 
 extension AppDelegate {
-    func registCrashLogger() {
-        #if DEBUG
-            return
-        #else
-            DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
-                AppCenter.start(withAppSecret: "dce6e9a3-b6e3-4fd2-9f2d-35c767a99663", services: [
-                    Analytics.self,
-                    Crashes.self
-                ])
-            }
-
-        #endif
-    }
-
     func failLaunchProtect() {
         #if DEBUG
             return
@@ -2793,12 +2775,12 @@ extension AppDelegate {
         let feedbackVisible = showHelp && Settings.trayMenuShowFeedback && labFeedbackMenuItem != nil
         let copyDiagVisible = showHelp && Settings.trayMenuShowCopyDiagnostic && labCopyDiagMenuItem != nil
         let crashLogsVisible = showHelp && Settings.trayMenuShowCrashLogs && labCrashLogsMenuItem != nil
-        let rollbackVisible = showHelp && Settings.trayMenuShowRollback && labRollbackMenuItem != nil
+        let rollbackVisible = ForkPolicy.officialUpdatesEnabled && showHelp && Settings.trayMenuShowRollback && labRollbackMenuItem != nil
         let anyLabHelpChild = feedbackVisible || copyDiagVisible || crashLogsVisible || rollbackVisible
-        let anyHelpChild = Settings.trayMenuShowAbout || Settings.trayMenuShowCheckUpdate || Settings.trayMenuShowLogLevel || Settings.trayMenuShowShowLog || Settings.trayMenuShowPorts || anyLabHelpChild
+        let anyHelpChild = Settings.trayMenuShowAbout || (ForkPolicy.officialUpdatesEnabled && Settings.trayMenuShowCheckUpdate) || Settings.trayMenuShowLogLevel || Settings.trayMenuShowShowLog || Settings.trayMenuShowPorts || anyLabHelpChild
         helpMenuItem.isHidden = !(showHelp && anyHelpChild)
         aboutMenuItem.isHidden = !(showHelp && Settings.trayMenuShowAbout)
-        checkForUpdateMenuItem.isHidden = !(showHelp && Settings.trayMenuShowCheckUpdate)
+        checkForUpdateMenuItem.isHidden = !(ForkPolicy.officialUpdatesEnabled && showHelp && Settings.trayMenuShowCheckUpdate)
         logLevelMenuItem.isHidden = !(showHelp && Settings.trayMenuShowLogLevel)
         showLogMenuItem.isHidden = !(showHelp && Settings.trayMenuShowShowLog)
         portsMenuItem.isHidden = !(showHelp && Settings.trayMenuShowPorts)

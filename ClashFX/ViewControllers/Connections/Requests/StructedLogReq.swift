@@ -92,13 +92,14 @@ class LogConn {
 
 @available(macOS 10.15, *)
 class StructedLogReq: WebSocketDelegate {
-    let logLevel = ClashLogLevel.info
+    let logLevel: ClashLogLevel
     private var socket: WebSocket?
 
     let decoder = JSONDecoder()
 
     let onLogUpdate = PassthroughSubject<StructedLog, Never>()
     init(level: ClashLogLevel = .warning) {
+        logLevel = level
         guard let url = URL(string: ConfigManager.apiUrl.appending("/logs?format=structured&level=\(logLevel.rawValue)")) else {
             decoder.dateDecodingStrategy = .formatted(DateFormatter.js)
             return

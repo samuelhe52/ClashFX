@@ -22,13 +22,14 @@ final class AutoUpgradeManager: NSObject {
     }
 
     static var shouldShowLabBadge: Bool {
-        isLabBuild || Settings.isLabChannel
+        ForkPolicy.officialUpdatesEnabled && (isLabBuild || Settings.isLabChannel)
     }
 
-    private var updaterController: SPUStandardUpdaterController!
+    private var updaterController: SPUStandardUpdaterController?
 
     override private init() {
         super.init()
+        guard ForkPolicy.officialUpdatesEnabled else { return }
         updaterController = SPUStandardUpdaterController(
             startingUpdater: true,
             updaterDelegate: self,
@@ -47,18 +48,31 @@ final class AutoUpgradeManager: NSObject {
     func setup() {}
 
     func setupCheckForUpdatesMenuItem(_ item: NSMenuItem) {
+        guard ForkPolicy.officialUpdatesEnabled else {
+            item.target = nil
+            item.action = nil
+            item.isHidden = true
+            return
+        }
         item.target = self
         item.action = #selector(checkForUpdates(_:))
     }
 
     @objc func checkForUpdates(_ sender: Any) {
+        guard ForkPolicy.officialUpdatesEnabled else { return }
         NSApp.activate(ignoringOtherApps: true)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-            self?.updaterController.checkForUpdates(sender)
+            self?.updaterController?.checkForUpdates(sender)
         }
     }
 
     func addChannelMenuItem(_ button: NSPopUpButton) {
+        guard ForkPolicy.officialUpdatesEnabled else {
+            button.target = nil
+            button.action = nil
+            button.superview?.isHidden = true
+            return
+        }
         button.removeAllItems()
         button.addItem(withTitle: NSLocalizedString("Stable", comment: "Update channel name"))
         button.lastItem?.tag = 0
@@ -70,6 +84,7 @@ final class AutoUpgradeManager: NSObject {
     }
 
     @objc private func handleChannelPopupChanged(_ sender: NSPopUpButton) {
+        guard ForkPolicy.officialUpdatesEnabled else { return }
         let wantsLab = sender.selectedTag() == 1
         guard wantsLab != Settings.isLabChannel else { return }
 
@@ -99,12 +114,12 @@ final class AutoUpgradeManager: NSObject {
         }
     }
 
-    var updater: SPUUpdater {
-        updaterController.updater
+    var updater: SPUUpdater? {
+        updaterController?.updater
     }
 
     @objc private func handleLabChannelChange() {
-        updater.resetUpdateCycle()
+        updater?.resetUpdateCycle()
     }
 }
 

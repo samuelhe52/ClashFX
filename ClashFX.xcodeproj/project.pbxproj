@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		03B729DE29C62F46117B82A2 /* LabSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6174820C53D16D319C2DB8E /* LabSupport.swift */; };
+		03B729DF29C62F46117B82A2 /* ForkPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6174821C53D16D319C2DB8E /* ForkPolicy.swift */; };
 		079C0498F443DE06CFD1A2E0 /* FormHelpers.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1541315BE9AC1A5200C8FDA /* FormHelpers.swift */; };
 		0AD7506B2A5B9A04001FFBBD /* ConnectionLeftPannelViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AD7506A2A5B9A04001FFBBD /* ConnectionLeftPannelViewModel.swift */; };
 		0AD7506D2A5B9B26001FFBBD /* ConnectionLeftTextCellView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AD7506C2A5B9B26001FFBBD /* ConnectionLeftTextCellView.swift */; };
@@ -331,6 +332,7 @@
 		E1B0C0A0290A0001005EE8C4 /* mihomo_core */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.executable"; name = mihomo_core; path = ClashFX/goClash/mihomo_core; sourceTree = SOURCE_ROOT; };
 		E27D6472BB33EF4C3BFD3270 /* ConfigDocument.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ConfigDocument.swift; sourceTree = "<group>"; };
 		E6174820C53D16D319C2DB8E /* LabSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LabSupport.swift; sourceTree = "<group>"; };
+		E6174821C53D16D319C2DB8E /* ForkPolicy.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ForkPolicy.swift; sourceTree = "<group>"; };
 		F910AA23240134AF00116E95 /* ProxyGroupMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProxyGroupMenu.swift; sourceTree = "<group>"; };
 		F915A4612366ADEF004840BE /* ClashConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClashConnection.swift; sourceTree = "<group>"; };
 		F9203A25236342820020D57D /* AppDelegate+..swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AppDelegate+..swift"; sourceTree = "<group>"; };
@@ -456,6 +458,7 @@
 				499ADAFC2498CC5900C488FE /* RemoteControlManager.swift */,
 				4929F67E258CE04700A435F6 /* Settings.swift */,
 				E6174820C53D16D319C2DB8E /* LabSupport.swift */,
+				E6174821C53D16D319C2DB8E /* ForkPolicy.swift */,
 			);
 			path = Managers;
 			sourceTree = "<group>";
@@ -1023,6 +1026,7 @@
 				490C8A102AC26E67007140F2 /* JSBridge.swift in Sources */,
 				4991D2322A565E6A00978143 /* Combine+Ext.swift in Sources */,
 				49281C802A1F01FA00F60935 /* DebugSettingViewController.swift in Sources */,
+				03B729DF29C62F46117B82A2 /* ForkPolicy.swift in Sources */,
 				49D767762A6195E600830333 /* StructedLogReq.swift in Sources */,
 				49CCDA2A2A54F9AC00FF1E13 /* ClashWindowController.swift in Sources */,
 				4929F67F258CE04700A435F6 /* Settings.swift in Sources */,
