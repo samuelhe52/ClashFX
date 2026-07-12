@@ -66,20 +66,6 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
-	<key>Fabric</key>
-	<dict>
-		<key>APIKey</key>
-		<string>e5990c61f53f0e5713e37f78458291760d631147</string>
-		<key>Kits</key>
-		<array>
-			<dict>
-				<key>KitInfo</key>
-				<dict/>
-				<key>KitName</key>
-				<string>Crashlytics</string>
-			</dict>
-		</array>
-	</dict>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
@@ -126,12 +112,6 @@
 		<key>com.clashfx.app.Helper</key>
 		<string>anchor apple generic and identifier "com.clashfx.app.Helper" and (certificate leaf[field.1.2.840.113635.100.6.1.9] /* exists */ or certificate 1[field.1.2.840.113635.100.6.2.6] /* exists */ and certificate leaf[field.1.2.840.113635.100.6.1.13] /* exists */ and certificate leaf[subject.OU] = MEWHFZ92DY)</string>
 	</dict>
-	<key>SUDisallowSelectChannel</key>
-	<false/>
-	<key>SUPublicEDKey</key>
-	<string>O+gNSh16a5FEGHwPrffpFzE35WbN/wjOctobXqHrUWU=</string>
-	<key>SUFeedURL</key>
-	<string>https://clash-fx.github.io/ClashFX/appcast.xml</string>
 	<key>coreVersion</key>
 	<string>1.19.21</string>
 </dict>
