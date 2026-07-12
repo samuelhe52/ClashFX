@@ -114,7 +114,10 @@ final class StatusItemView: StatusItemViewProtocol {
             return true
         }
 
-        image.isTemplate = false
+        // Let AppKit tint the monochrome composite for the menu bar's normal
+        // and highlighted states. The rendered alpha still carries the
+        // disabled-icon treatment.
+        image.isTemplate = true
         button.image = image
     }
 
