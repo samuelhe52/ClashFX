@@ -155,8 +155,6 @@ class TrayIconPickerView: ImagePickerView {
     }
 
     private func refreshStatusItemImage() {
-        if let view = AppDelegate.shared.statusItemView as? StatusItemView {
-            view.imageView.image = StatusItemTool.menuImage
-        }
+        AppDelegate.shared.statusItemView.reloadMenuImage()
     }
 }

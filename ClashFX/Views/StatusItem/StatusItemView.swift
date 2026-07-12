@@ -9,123 +9,166 @@
 import AppKit
 import Foundation
 
-class StatusItemView: NSView, StatusItemViewProtocol {
-    @IBOutlet var imageView: NSImageView!
-    @IBOutlet var speedContainerView: NSView!
+/// Renders the complete status item into one image. Keeping custom views out of
+/// `NSStatusBarButton` avoids the menu-close layout/redraw loop seen on recent
+/// macOS releases.
+final class StatusItemView: StatusItemViewProtocol {
+    private enum Layout {
+        static let height: CGFloat = 22
+        static let iconOnlyWidth: CGFloat = 25
+        static let speedTextPadding: CGFloat = 7
+        static let trailingPadding: CGFloat = 3
+        static let iconCellSize: CGFloat = 18
+        static let iconLeading: CGFloat = 3
+        static let labelHeight: CGFloat = 10
+        static let fixedWidthSample = "999KB/s"
+    }
 
-    private var speedTextView: SpeedTextView!
-    private let iconOnlyWidth: CGFloat = 25
-    private let speedTextPadding: CGFloat = 7
+    private weak var button: NSStatusBarButton?
 
-    // Use -1 so the first updateSpeedLabel(0, 0) call always triggers a redraw.
-    var up: Int = -1
-    var down: Int = -1
-
-    weak var statusItem: NSStatusItem?
-    private var speedLeadingConstraint: NSLayoutConstraint?
-    private var collapsedSpeedWidthConstraint: NSLayoutConstraint?
+    private var up = 0
+    private var down = 0
+    private var showSpeed = true
+    private var enableProxy = false
+    private var currentWidth = statusItemLengthWithSpeed
 
     static func create(statusItem: NSStatusItem?) -> StatusItemView {
-        var topLevelObjects: NSArray?
-        if Bundle.main.loadNibNamed("StatusItemView", owner: self, topLevelObjects: &topLevelObjects) {
-            let view = (topLevelObjects!.first(where: { $0 is NSView }) as? StatusItemView)!
-            view.statusItem = statusItem
-            view.setupView()
-            view.imageView.image = StatusItemTool.menuImage
-
-            if let button = statusItem?.button {
-                // 修复 macOS 15+ 兼容性：在添加新子视图前移除所有现有子视图
-                // 这样可以避免在新版 macOS 中因为多次添加子视图而导致的崩溃
-                button.subviews.forEach { $0.removeFromSuperview() }
-                button.addSubview(view)
-                button.imagePosition = .imageOverlaps
-            } else {
-                Logger.log("button = nil")
-                AppDelegate.shared.openConfigFolder(self)
-            }
-            view.updateViewStatus(enableProxy: false)
-            return view
+        let view = StatusItemView()
+        if let button = statusItem?.button {
+            view.button = button
+            button.imagePosition = .imageOverlaps
+        } else {
+            Logger.log("button = nil")
+            AppDelegate.shared.openConfigFolder(view)
         }
-        return NSView() as! StatusItemView
-    }
-
-    func setupView() {
-        // Replace NSTextField with custom draw-based view to avoid
-        // macOS 26+ status bar NSTextField infinite redraw loop (high CPU bug)
-        speedTextView = SpeedTextView()
-        speedTextView.translatesAutoresizingMaskIntoConstraints = false
-        speedContainerView.subviews.forEach { $0.removeFromSuperview() }
-        speedContainerView.addSubview(speedTextView)
-        NSLayoutConstraint.activate([
-            speedTextView.leadingAnchor.constraint(equalTo: speedContainerView.leadingAnchor),
-            speedTextView.trailingAnchor.constraint(equalTo: speedContainerView.trailingAnchor),
-            speedTextView.topAnchor.constraint(equalTo: speedContainerView.topAnchor),
-            speedTextView.bottomAnchor.constraint(equalTo: speedContainerView.bottomAnchor)
-        ])
-
-        speedLeadingConstraint = speedContainerView.leadingAnchor.constraint(greaterThanOrEqualTo: imageView.trailingAnchor, constant: 4)
-        speedLeadingConstraint?.isActive = true
-        collapsedSpeedWidthConstraint = speedContainerView.widthAnchor.constraint(equalToConstant: 0)
-
-        imageView.setContentCompressionResistancePriority(.required, for: .horizontal)
-        imageView.setContentHuggingPriority(.required, for: .horizontal)
-    }
-
-    func updateSize(width: CGFloat) {
-        frame = CGRect(x: 0, y: 0, width: width, height: 22)
+        view.renderImage()
+        return view
     }
 
     var preferredWidth: CGFloat {
-        guard !speedContainerView.isHidden else { return iconOnlyWidth }
-        return iconOnlyWidth + speedTextView.textWidth + speedTextPadding
+        guard showSpeed else { return Layout.iconOnlyWidth }
+        let attributes: [NSAttributedString.Key: Any] = [.font: StatusItemTool.speedFont]
+        let textWidth = ceil((Layout.fixedWidthSample as NSString).size(withAttributes: attributes).width)
+        return Layout.iconOnlyWidth + textWidth + Layout.speedTextPadding
+    }
+
+    func updateSize(width: CGFloat) {
+        currentWidth = width
+        renderImage()
     }
 
     func updateViewStatus(enableProxy: Bool) {
-        if enableProxy {
-            imageView.contentTintColor = NSColor.labelColor
-        } else {
-            imageView.contentTintColor = NSColor.labelColor.withSystemEffect(.disabled)
-        }
+        guard self.enableProxy != enableProxy else { return }
+        self.enableProxy = enableProxy
+        renderImage()
     }
 
     func updateSpeedLabel(up: Int, down: Int) {
-        guard !speedContainerView.isHidden else { return }
-        var needsRedraw = false
-        if up != self.up {
-            self.up = up
-            needsRedraw = true
-        }
-        if down != self.down {
-            self.down = down
-            needsRedraw = true
-        }
-        if needsRedraw {
-            speedTextView.update(
-                up: SpeedUtils.getMenuBarSpeedString(for: up),
-                down: SpeedUtils.getMenuBarSpeedString(for: down)
-            )
-            updateStatusItemWidthIfNeeded()
-        }
+        guard showSpeed, self.up != up || self.down != down else { return }
+        self.up = up
+        self.down = down
+        renderImage()
     }
 
     func showSpeedContainer(show: Bool) {
-        speedContainerView.isHidden = !show
-        speedLeadingConstraint?.isActive = show
-        collapsedSpeedWidthConstraint?.isActive = !show
-        updateStatusItemWidthIfNeeded()
+        guard showSpeed != show else { return }
+        showSpeed = show
+        renderImage()
     }
 
     func updateSpeedToolTip(_ toolTip: String) {
-        self.toolTip = toolTip
-        imageView.toolTip = toolTip
-        speedContainerView.toolTip = toolTip
-        speedTextView.toolTip = toolTip
+        button?.toolTip = toolTip
     }
 
-    private func updateStatusItemWidthIfNeeded() {
-        let width = preferredWidth
-        guard statusItem?.length != width else { return }
-        statusItem?.length = width
-        updateSize(width: width)
+    func reloadMenuImage() {
+        renderImage()
+    }
+
+    private func renderImage() {
+        guard let button else { return }
+
+        let width = currentWidth
+        let showSpeed = showSpeed
+        let enableProxy = enableProxy
+        let upSpeed = SpeedUtils.getMenuBarSpeedString(for: up)
+        let downSpeed = SpeedUtils.getMenuBarSpeedString(for: down)
+        let icon = StatusItemTool.menuImage.copy() as? NSImage
+        icon?.isTemplate = false
+
+        let image = NSImage(size: NSSize(width: width, height: Layout.height), flipped: false) { [weak button] _ in
+            guard let button else { return false }
+            let drawContents = {
+                Self.drawIcon(icon, enableProxy: enableProxy)
+                if showSpeed {
+                    Self.drawSpeed(up: upSpeed, down: downSpeed, width: width)
+                }
+            }
+            if #available(macOS 11, *) {
+                button.effectiveAppearance.performAsCurrentDrawingAppearance(drawContents)
+            } else {
+                let previousAppearance = NSAppearance.current
+                NSAppearance.current = button.effectiveAppearance
+                drawContents()
+                NSAppearance.current = previousAppearance
+            }
+            return true
+        }
+
+        image.isTemplate = false
+        button.image = image
+    }
+
+    private static func drawIcon(_ icon: NSImage?, enableProxy: Bool) {
+        guard let icon, icon.size.width > 0, icon.size.height > 0 else { return }
+
+        let cellRect = CGRect(
+            x: Layout.iconLeading,
+            y: (Layout.height - Layout.iconCellSize) / 2,
+            width: Layout.iconCellSize,
+            height: Layout.iconCellSize
+        )
+        let scale = min(
+            cellRect.width / icon.size.width,
+            cellRect.height / icon.size.height,
+            1
+        )
+        let iconRect = CGRect(
+            x: cellRect.midX - icon.size.width * scale / 2,
+            y: cellRect.midY - icon.size.height * scale / 2,
+            width: icon.size.width * scale,
+            height: icon.size.height * scale
+        )
+
+        icon.draw(in: iconRect)
+        let tint = enableProxy
+            ? NSColor.labelColor
+            : NSColor.labelColor.withSystemEffect(.disabled)
+        tint.setFill()
+        iconRect.fill(using: .sourceAtop)
+    }
+
+    private static func drawSpeed(up: String, down: String, width: CGFloat) {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: StatusItemTool.speedFont,
+            .foregroundColor: NSColor.labelColor
+        ]
+        let upSize = (up as NSString).size(withAttributes: attributes)
+        let downSize = (down as NSString).size(withAttributes: attributes)
+        let trailingX = width - Layout.trailingPadding
+
+        let upRect = CGRect(
+            x: trailingX - upSize.width,
+            y: Layout.height - Layout.labelHeight - 1,
+            width: upSize.width,
+            height: Layout.labelHeight
+        )
+        let downRect = CGRect(
+            x: trailingX - downSize.width,
+            y: 1,
+            width: downSize.width,
+            height: Layout.labelHeight
+        )
+        (up as NSString).draw(in: upRect, withAttributes: attributes)
+        (down as NSString).draw(in: downRect, withAttributes: attributes)
     }
 }

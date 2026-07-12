@@ -13,6 +13,7 @@ protocol StatusItemViewProtocol: AnyObject {
     func updateSpeedLabel(up: Int, down: Int)
     func showSpeedContainer(show: Bool)
     func updateSpeedToolTip(_ toolTip: String)
+    func reloadMenuImage()
     func updateSize(width: CGFloat)
     var preferredWidth: CGFloat { get }
 }
