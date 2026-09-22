@@ -20,14 +20,21 @@ class JsBridgeUtil {
 
         bridge.registerHandler("setSystemProxy") { anydata, responseCallback in
             if let enable = anydata as? Bool {
-                ConfigManager.shared.proxyPortAutoSet = enable
                 if enable {
-                    SystemProxyManager.shared.saveProxy()
-                    SystemProxyManager.shared.enableProxy()
+                    SystemProxyManager.shared.enableProxy { success in
+                        if success {
+                            ConfigManager.shared.proxyPortAutoSet = true
+                        }
+                        responseCallback(success)
+                    }
                 } else {
-                    SystemProxyManager.shared.disableProxy()
+                    SystemProxyManager.shared.disableProxy(result: { success in
+                        if success {
+                            ConfigManager.shared.proxyPortAutoSet = false
+                        }
+                        responseCallback(success)
+                    })
                 }
-                responseCallback(true)
             } else {
                 responseCallback(false)
             }
@@ -100,12 +107,10 @@ class JsBridgeUtil {
                     try fm.copyItem(at: bundleDashboard, to: clashHome)
                     setUIPath(clashHome.path.goStringBuffer())
                     DispatchQueue.main.async {
-                        WKWebsiteDataStore.default().removeData(
-                            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
-                            modifiedSince: Date(timeIntervalSince1970: 0)
-                        ) {}
-                        NotificationCenter.default.post(name: .reloadDashboard, object: nil)
-                        responseCallback(true)
+                        WebCacheCleaner.clean {
+                            NotificationCenter.default.post(name: .reloadDashboard, object: nil)
+                            responseCallback(true)
+                        }
                     }
                 } catch {
                     Logger.log("upgrade_ui failed: \(error)", level: .error)

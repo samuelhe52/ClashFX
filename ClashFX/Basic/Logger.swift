@@ -9,18 +9,26 @@
 import CocoaLumberjack
 import Foundation
 
+private final class ClashFXLogFileManager: DDLogFileManagerDefault {
+    override var newLogFileName: String {
+        let appName = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName
+        return LogTimestampFormatting.fileName(appName: appName)
+    }
+}
+
 class Logger {
     static let shared = Logger()
-    var fileLogger: DDFileLogger = .init()
+    var fileLogger: DDFileLogger
+    private let coreLogGuard = CoreLogGuard()
 
     private init() {
+        fileLogger = DDFileLogger(logFileManager: ClashFXLogFileManager())
         #if DEBUG
             DDLog.add(DDOSLogger.sharedInstance)
         #endif
-        // default time zone is "UTC"
-        let dataFormatter = DateFormatter()
-        dataFormatter.setLocalizedDateFormatFromTemplate("YYYY/MM/dd HH:mm:ss:SSS")
-        fileLogger.logFormatter = DDLogFileFormatterDefault(dateFormatter: dataFormatter)
+        fileLogger.logFormatter = DDLogFileFormatterDefault(
+            dateFormatter: LogTimestampFormatting.lineDateFormatter()
+        )
         fileLogger.rollingFrequency = TimeInterval(60 * 60 * 24) // 24 hours
         fileLogger.logFileManager.maximumNumberOfLogFiles = 3
         DDLog.add(fileLogger)
@@ -44,6 +52,21 @@ class Logger {
 
     static func log(_ msg: String, level: ClashLogLevel = .info, file: String = #file, function: String = #function) {
         shared.logToFile(msg: "[\(level.rawValue)] \(file) \(function) \(msg)", level: level)
+    }
+
+    /// Returns a recovery reason when the active TUN core should be rebuilt.
+    /// Exact repeats and known interface-error variants are bounded before
+    /// reaching the asynchronous file logger.
+    @discardableResult
+    static func logCore(_ msg: String, level: ClashLogLevel) -> CoreLogRecoveryReason? {
+        let decision = shared.coreLogGuard.process(message: msg, level: level)
+        for (entry, entryLevel) in decision.entries {
+            shared.logToFile(
+                msg: "[\(entryLevel.rawValue)] [mihomo_core] \(entry)",
+                level: entryLevel
+            )
+        }
+        return decision.recoveryReason
     }
 
     func logFilePath() -> String {

@@ -29,6 +29,7 @@ class GeneralSettingViewController: NSViewController {
 
     @IBOutlet var ipv6Button: NSButton!
     @IBOutlet var speedTestUrlField: NSTextField!
+    @IBOutlet var benchmarkURLSaveButton: NSButton!
 
     var disposeBag = DisposeBag()
     override func viewDidLoad() {
@@ -36,16 +37,32 @@ class GeneralSettingViewController: NSViewController {
         installDockIconToggle()
         speedTestUrlField.stringValue = Settings.benchMarkUrl
         speedTestUrlField.placeholderString = Settings.defaultBenchmarkUrl
+        benchmarkURLSaveButton.title = NSLocalizedString("Save", comment: "")
+        speedTestUrlField.rx.text
+            .compactMap { $0 }
+            .distinctUntilChanged()
+            .subscribe(onNext: { [weak self] _ in
+                self?.persistBenchmarkURL()
+            })
+            .disposed(by: disposeBag)
         ignoreListTextView.string = Settings.proxyIgnoreList.joined(separator: ",")
         let tunRouteExcludes = Settings.normalizeAndPersistTunRouteExcludeList()
         tunRouteExcludeTextView.string = Settings.tunRouteExcludeRawText.isEmpty
             ? tunRouteExcludes.joined(separator: ",\n")
             : Settings.tunRouteExcludeRawText
         ignoreListTextView.rx
-            .string.debounce(.milliseconds(500), scheduler: MainScheduler.instance)
-            .map { $0.components(separatedBy: ",").filter { !$0.isEmpty } }
+            .string
+            .skip(1)
+            .debounce(.milliseconds(500), scheduler: MainScheduler.instance)
+            .map {
+                $0.components(separatedBy: CharacterSet(charactersIn: ",\n\r"))
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            }
+            .distinctUntilChanged()
             .subscribe { arr in
                 Settings.proxyIgnoreList = arr
+                AppDelegate.shared.applyProxyBypassSettings()
             }.disposed(by: disposeBag)
 
         tunRouteExcludeTextView.rx
@@ -84,8 +101,11 @@ class GeneralSettingViewController: NSViewController {
             .map { $0 ? .on : .off }
             .bind(to: useiCloudButton.rx.state)
             .disposed(by: disposeBag)
-        useiCloudButton.rx.state.map { $0 == .on }.subscribe {
-            ICloudManager.shared.userEnableiCloud = $0
+        useiCloudButton.rx.state.map { $0 == .on }.subscribe { enabled in
+            guard ICloudManager.shared.setUserEnableiCloud(enabled) || !enabled else {
+                NSAlert.alert(with: NSLocalizedString("iCloud not available", comment: ""))
+                return
+            }
         }.disposed(by: disposeBag)
         reduceNotificationsButton.toolTip = NSLocalizedString("Reduce alerts if notification permission is disabled", comment: "")
         reduceNotificationsButton.state = Settings.disableNoti ? .on : .off
@@ -99,14 +119,54 @@ class GeneralSettingViewController: NSViewController {
         }.disposed(by: disposeBag)
 
         if Settings.proxyPort > 0 {
-            proxyPortTextField.stringValue = "\(Settings.proxyPort)"
+            proxyPortTextField.stringValue = PortPreferencePolicy.editableText(
+                configuredPort: Settings.proxyPort
+            )
+            let runtimePort = ConfigManager.shared.currentConfig?.mixedPort ?? 0
+            proxyPortTextField.toolTip = PortPreferencePolicy.runtimeFallback(
+                configuredPort: Settings.proxyPort,
+                runtimePort: runtimePort
+            ).map {
+                String(
+                    format: NSLocalizedString(
+                        "Configured port: %d; temporary runtime fallback: %d",
+                        comment: ""
+                    ),
+                    $0.configured,
+                    $0.runtime
+                )
+            }
         } else {
-            proxyPortTextField.stringValue = "\(ConfigManager.shared.currentConfig?.mixedPort ?? 0)"
+            proxyPortTextField.stringValue = ""
+            proxyPortTextField.placeholderString = String(
+                format: NSLocalizedString("Auto (runtime: %@)", comment: ""),
+                "\(ConfigManager.shared.currentConfig?.mixedPort ?? 0)"
+            )
         }
         if Settings.apiPort > 0 {
-            apiPortTextField.stringValue = "\(Settings.apiPort)"
+            apiPortTextField.stringValue = PortPreferencePolicy.editableText(
+                configuredPort: Settings.apiPort
+            )
+            let runtimePort = Int(ConfigManager.shared.apiPort) ?? 0
+            apiPortTextField.toolTip = PortPreferencePolicy.runtimeFallback(
+                configuredPort: Settings.apiPort,
+                runtimePort: runtimePort
+            ).map {
+                String(
+                    format: NSLocalizedString(
+                        "Configured port: %d; temporary runtime fallback: %d",
+                        comment: ""
+                    ),
+                    $0.configured,
+                    $0.runtime
+                )
+            }
         } else {
-            apiPortTextField.stringValue = ConfigManager.shared.apiPort
+            apiPortTextField.stringValue = ""
+            apiPortTextField.placeholderString = String(
+                format: NSLocalizedString("Auto (runtime: %@)", comment: ""),
+                ConfigManager.shared.apiPort
+            )
         }
 
         apiSecretTextField.stringValue = Settings.apiSecret
@@ -121,14 +181,16 @@ class GeneralSettingViewController: NSViewController {
 
         proxyPortTextField.rx.text
             .compactMap { $0 }
-            .compactMap { Int($0) }
+            .compactMap(PortPreferencePolicy.configuredPort(from:))
+            .distinctUntilChanged()
             .bind {
                 Settings.proxyPort = $0
             }.disposed(by: disposeBag)
 
         apiPortTextField.rx.text
             .compactMap { $0 }
-            .compactMap { Int($0) }
+            .compactMap(PortPreferencePolicy.configuredPort(from:))
+            .distinctUntilChanged()
             .bind {
                 Settings.apiPort = $0
             }.disposed(by: disposeBag)
@@ -196,18 +258,41 @@ class GeneralSettingViewController: NSViewController {
 
     override func viewWillDisappear() {
         super.viewWillDisappear()
-        let url = speedTestUrlField.stringValue
-        if url.isUrlVaild() || url.isEmpty {
-            Settings.benchMarkUrl = url
-        }
+        persistBenchmarkURL()
         SSIDSuspendTool.shared.showNoticeOnNotPermission = true
         SSIDSuspendTool.shared.requestPermissionIfNeed()
         SSIDSuspendTool.shared.update()
     }
 
-    @IBAction func actionResetIgnoreList(_ sender: Any) {
+    @IBAction func actionSaveBenchmarkURL(_: Any) {
+        guard persistBenchmarkURL() else {
+            NSSound.beep()
+            return
+        }
+        speedTestUrlField.stringValue = Settings.benchMarkUrl
+        view.window?.makeFirstResponder(nil)
+    }
+
+    @discardableResult
+    private func persistBenchmarkURL() -> Bool {
+        guard let url = BenchmarkURLSettings.normalizedURL(
+            speedTestUrlField.stringValue,
+            defaultURL: Settings.defaultBenchmarkUrl
+        ) else {
+            speedTestUrlField.textColor = .systemRed
+            benchmarkURLSaveButton.isEnabled = false
+            return false
+        }
+        Settings.benchMarkUrl = url
+        speedTestUrlField.textColor = .controlTextColor
+        benchmarkURLSaveButton.isEnabled = true
+        return true
+    }
+
+    @IBAction func actionResetIgnoreList(_: Any) {
         ignoreListTextView.string = Settings.proxyIgnoreListDefaultValue.joined(separator: ",")
         Settings.proxyIgnoreList = Settings.proxyIgnoreListDefaultValue
+        AppDelegate.shared.applyProxyBypassSettings()
     }
 
     @IBAction func actionResetTunRouteExcludeList(_ sender: Any) {

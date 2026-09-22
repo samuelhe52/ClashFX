@@ -283,6 +283,8 @@
 /* No comment provided by engineer. */
 "Testing" = "テスト中";
 
+"Benchmark unavailable" = "ベンチマーク不可";
+
 /* No comment provided by engineer. */
 "The active connections will be interrupted." = "アクティブな接続が中断されます。";
 
@@ -384,6 +386,11 @@
 
 /* No comment provided by engineer. */
 "Tray Icon" = "トレイアイコン";
+"Menu Bar Speed" = "メニューバーの速度";
+"Speed alignment" = "速度の配置";
+"Speed Align Left" = "左";
+"Speed Align Center" = "中央";
+"Speed Align Right" = "右";
 
 /* No comment provided by engineer. */
 "The file could not be loaded as an image." = "ファイルを画像として読み込めませんでした。";
@@ -422,6 +429,9 @@
 "Tray Menu" = "トレイメニュー";
 
 /* No comment provided by engineer. */
+"Show Subscription Information" = "サブスクリプション情報を表示";
+
+/* No comment provided by engineer. */
 "Node Switch" = "ノード切替";
 
 /* No comment provided by engineer. */
@@ -438,6 +448,7 @@
 
 /* No comment provided by engineer. */
 "Dashboard" = "ダッシュボード";
+"Dashboard and core updates are managed by ClashFX" = "ダッシュボードとコアの更新は ClashFX が管理します";
 
 /* No comment provided by engineer. */
 "Connection Details" = "接続の詳細";
@@ -575,13 +586,61 @@
 /* Requires Enhanced Mode (uses PROCESS-NAME rules) */
 "Requires Enhanced Mode (uses PROCESS-NAME rules)" = "拡張モードが必要です（PROCESS-NAME ルールを使用）";
 
+/* Claude Proxy Lock */
+"Claude Proxy Lock…" = "Claude プロキシロック…";
+"Claude Proxy Lock" = "Claude プロキシロック";
+"Pin Claude traffic to one proxy and block fallback" = "Claude 通信を1つのプロキシに固定し、フォールバックを防止";
+"Choose one concrete proxy node. ClashFX will force Claude Desktop, Claude Code, and Anthropic web domains through it in Enhanced Mode. If that node or ClashFX fails, protected traffic is blocked instead of falling back. While enabled, Rule mode, Enhanced Mode, and System Proxy cannot be turned off. Browser extensions, manually configured app proxies, and software that ignores macOS networking settings remain outside this protection." = "具体的なプロキシノードを1つ選択します。拡張モードで Claude Desktop、Claude Code、Anthropic のWebドメインをそのノードに固定します。ノードまたは ClashFX が停止した場合、保護対象の通信は他の経路へ切り替わらず遮断されます。有効中はルールモード、拡張モード、システムプロキシを無効にできません。ブラウザ拡張、アプリ内で手動設定したプロキシ、macOS のネットワーク設定を無視するソフトウェアは保護対象外です。";
+"Apply Lock" = "ロックを適用";
+"Enable Lock" = "ロックを有効化";
+"Disable Lock" = "ロックを無効化";
+"Claude Proxy Lock is protecting this setting. Disable the lock first." = "Claude プロキシロックがこの設定を保護しています。先にロックを無効にしてください。";
+"Claude Proxy Lock could not be fully applied: %@" = "Claude プロキシロックを完全に適用できませんでした：%@";
+"Proxy core is not running." = "プロキシコアが実行されていません。";
+"Could not load the proxy list." = "プロキシ一覧を読み込めませんでした。";
+"No eligible proxy nodes are available." = "使用可能な具体的プロキシノードがありません。";
+"Could not enable System Proxy." = "システムプロキシを有効にできませんでした。";
+
 /* Settings sidebar */
 "Settings" = "設定";
 "Global Shortcut" = "ショートカット";
+"Shortcut Scope" = "ショートカットの範囲";
+"Enable Global Shortcuts" = "グローバルショートカットを有効にする";
+"Shortcuts work while the ClashFX menu is open. Enable global shortcuts to use them in other apps. Open Menu is always global." = "ショートカットは ClashFX メニューを開いている間だけ動作します。ほかのアプリでも使うには、グローバルショートカットを有効にしてください。「メニューを開く」は常にグローバルです。";
 "Debug" = "デバッグ";
 "Application Settings" = "アプリ設定";
 "Network Automation" = "ネットワーク自動化";
 "Connectivity Test" = "接続テスト";
 "Bypass Rules" = "バイパスルール";
+"Copy Host or IP" = "ホスト名または IP をコピー";
 "Global Shortcut Updated" = "グローバルショートカットを更新しました";
 "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut." = "Command-C を横取りしないよう、コピーのショートカットを変更しました。設定 > グローバルショートカットで変更できます。";
+"Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "macOS の標準ショートカットを復元するため、安全でない Command キーのグローバルショートカットを削除しました。設定 > グローバルショートカットで任意の組み合わせを設定できます。";
+"Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut." = "バックグラウンドでの意図しないモード変更を防ぐため、プロキシモードの既定ショートカットを削除しました。設定 > グローバルショートカットで任意の組み合わせを設定できます。";
+"Could not switch to %@. ClashFX kept the core's current proxy mode." = "%@ に切り替えられませんでした。ClashFX はコアの現在のプロキシモードを維持しました。";
+"Failed to Start Enhanced Mode" = "拡張モードを開始できませんでした";
+"Failed to Stop Enhanced Mode" = "拡張モードを停止できませんでした";
+"TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list." = "TUN ルート除外に無効な項目があります：\n%@\n\n項目をカンマまたは改行で区切るか、リストをリセットしてください。";
+"Open Settings" = "設定を開く";
+"Core temporarily unavailable; showing the last valid rules snapshot" = "コアは一時的に利用できません。最後の有効なルールのスナップショットを表示しています";
+"Auto (runtime: %@)" = "自動（実行中：%@）";
+"Restarting…" = "再起動中…";
+"Press shortcut" = "ショートカットを押してください";
+"Record Shortcut" = "ショートカットを記録";
+"Shortcut registration failed" = "ショートカットの登録に失敗しました";
+"Shortcut already used" = "ショートカットは使用中です";
+"This shortcut is already assigned to %@." = "このショートカットは %@ に割り当てられています。";
+"Shortcut conflicts with macOS" = "ショートカットが macOS と競合しています";
+"This shortcut is used by the “%@” menu command. Use it anyway?" = "このショートカットはメニューコマンド「%@」で使用されています。それでも使用しますか？";
+"This shortcut is commonly reserved by macOS. Use it anyway?" = "このショートカットは通常 macOS で予約されています。それでも使用しますか？";
+"Use Anyway" = "このまま使用";
+"Configured port: %d; temporary runtime fallback: %d" = "設定ポート：%d、一時実行ポート：%d";
+
+// Benchmark evidence provenance
+"Measured at: %@" = "測定日時：%@";
+"Historical benchmark result" = "過去の測定結果";
+"Latest benchmark unavailable; showing the last measurement" = "今回の測定は利用できません。前回の測定結果を表示しています";
+"Not tested" = "未測定";
+
+"No testable proxy nodes" = "測定可能なプロキシノードがありません";
+"Direct fallback (no proxy nodes)" = "直接接続にフォールバック（プロキシノードなし）";

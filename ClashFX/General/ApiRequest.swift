@@ -18,12 +18,166 @@ protocol ApiRequestStreamDelegate: AnyObject {
 
 typealias ErrorString = String
 
-class ApiRequest {
-    static let shared = ApiRequest()
+private final class LimitedAsyncTaskRunner {
+    typealias Task = (@escaping () -> Void) -> Void
 
-    private var proxyRespCache: ClashProxyResp?
+    private let tasks: [Task]
+    private let maxConcurrent: Int
+    private let stateQueue = DispatchQueue(label: "com.clashfx.proxyDelayTaskRunner")
+    private var nextTaskIndex = 0
+    private var activeTaskCount = 0
+    private var completion: (() -> Void)?
+
+    init(tasks: [Task], maxConcurrent: Int) {
+        self.tasks = tasks
+        self.maxConcurrent = max(1, maxConcurrent)
+    }
+
+    func start(completion: @escaping () -> Void) {
+        stateQueue.async {
+            self.completion = completion
+            self.scheduleAvailableTasks()
+        }
+    }
+
+    private func scheduleAvailableTasks() {
+        while activeTaskCount < maxConcurrent, nextTaskIndex < tasks.count {
+            let task = tasks[nextTaskIndex]
+            nextTaskIndex += 1
+            activeTaskCount += 1
+
+            task {
+                self.stateQueue.async {
+                    self.activeTaskCount -= 1
+                    self.scheduleAvailableTasks()
+                }
+            }
+        }
+
+        guard nextTaskIndex == tasks.count, activeTaskCount == 0 else { return }
+        let completion = completion
+        self.completion = nil
+        DispatchQueue.main.async {
+            completion?()
+        }
+    }
+}
+
+class ApiRequest {
+    typealias ProxyGroupDelayResult = ProxyGroupDelayOutcome
+
+    struct ProviderProxyBenchmarkTarget: Hashable {
+        let providerName: ClashProviderName
+        let proxyName: ClashProxyName
+    }
+
+    struct LeafProxyBenchmarkResult {
+        let identity: LeafProxyBenchmarkIdentity
+        let benchmarkURL: String
+        let outcome: ProxyDelayOutcome
+    }
+
+    final class BenchmarkSession {
+        private let lock = NSLock()
+        private var requests: [UUID: DataRequest] = [:]
+        private var cancelled = false
+        private var terminated = false
+        private var terminationObservers = [() -> Void]()
+
+        var isCancelled: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return cancelled
+        }
+
+        fileprivate func track(_ request: DataRequest) -> UUID {
+            let id = UUID()
+            lock.lock()
+            let shouldCancel = cancelled
+            if !shouldCancel {
+                requests[id] = request
+            }
+            lock.unlock()
+
+            if shouldCancel {
+                request.cancel()
+            }
+            return id
+        }
+
+        fileprivate func finish(_ id: UUID) {
+            lock.lock()
+            requests[id] = nil
+            lock.unlock()
+        }
+
+        func cancel() {
+            lock.lock()
+            guard !cancelled else {
+                lock.unlock()
+                return
+            }
+            cancelled = true
+            let pendingRequests = Array(requests.values)
+            requests.removeAll()
+            lock.unlock()
+
+            pendingRequests.forEach { $0.cancel() }
+            terminate()
+        }
+
+        func onTermination(_ observer: @escaping () -> Void) {
+            lock.lock()
+            let invokeNow = terminated
+            if !invokeNow {
+                terminationObservers.append(observer)
+            }
+            lock.unlock()
+
+            if invokeNow {
+                if Thread.isMainThread {
+                    observer()
+                } else {
+                    DispatchQueue.main.async(execute: observer)
+                }
+            }
+        }
+
+        func terminate() {
+            lock.lock()
+            guard !terminated else {
+                lock.unlock()
+                return
+            }
+            terminated = true
+            let observers = terminationObservers
+            terminationObservers.removeAll()
+            lock.unlock()
+
+            if Thread.isMainThread {
+                observers.forEach { $0() }
+            } else {
+                DispatchQueue.main.async {
+                    observers.forEach { $0() }
+                }
+            }
+        }
+    }
+
+    static let shared = ApiRequest()
+    static let benchmarkMaxConcurrent = 8
+    private static let benchmarkRequestTimeoutMargin: TimeInterval = 5
+    private static let benchmarkMinimumRequestTimeout: TimeInterval = 10
+
+    private var proxyRespCacheData: Data?
+    private var rulesCache: [ClashRule] = []
+    private var lastProxyCacheFallbackLogDate = Date.distantPast
 
     static let clashRequestQueue = DispatchQueue(label: "com.clashfx.clashRequestQueue")
+    private static let proxySnapshotDecodeQueue = DispatchQueue(
+        label: "com.clashfx.proxySnapshotDecodeQueue",
+        qos: .userInitiated
+    )
 
     private init() {
         let configuration = URLSessionConfiguration.default
@@ -44,7 +198,8 @@ class ApiRequest {
         _ url: String,
         method: HTTPMethod = .get,
         parameters: Parameters? = nil,
-        encoding: ParameterEncoding = URLEncoding.default
+        encoding: ParameterEncoding = URLEncoding.default,
+        timeoutInterval: TimeInterval? = nil
     )
         -> DataRequest {
         guard ConfigManager.shared.isRunning else {
@@ -56,7 +211,12 @@ class ApiRequest {
                      method: method,
                      parameters: parameters,
                      encoding: encoding,
-                     headers: authHeader())
+                     headers: authHeader(),
+                     requestModifier: { request in
+                         if let timeoutInterval {
+                             request.timeoutInterval = timeoutInterval
+                         }
+                     })
     }
 
     weak var delegate: ApiRequestStreamDelegate?
@@ -223,11 +383,19 @@ class ApiRequest {
 
     static func updateOutBoundMode(mode: ClashProxyMode, callback: ((Bool) -> Void)? = nil) {
         req("/configs", method: .patch, parameters: ["mode": mode.rawValue], encoding: JSONEncoding.default)
+            .validate(statusCode: 200 ..< 300)
             .responseData { response in
                 switch response.result {
                 case .success:
                     callback?(true)
-                case .failure:
+                case let .failure(error):
+                    let status = response.response
+                        .map { String($0.statusCode) } ?? "none"
+                    Logger.log(
+                        "Failed to update outbound mode to \(mode.rawValue): " +
+                            "status=\(status) error=\(error.localizedDescription)",
+                        level: .error
+                    )
                     callback?(false)
                 }
             }
@@ -245,23 +413,65 @@ class ApiRequest {
     }
 
     static func requestProxyGroupList(completeHandler: ((ClashProxyResp) -> Void)? = nil) {
-        req("/proxies").responseData {
-            res in
-            let proxies = ClashProxyResp(try? res.result.get())
-            ApiRequest.shared.proxyRespCache = proxies
-            completeHandler?(proxies)
+        req("/proxies").responseData(queue: proxySnapshotDecodeQueue) { res in
+            let statusCode = res.response?.statusCode ?? -1
+            if case let .success(data) = res.result,
+               (200 ..< 300).contains(statusCode),
+               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               root["proxies"] is [String: Any] {
+                let proxies = ClashProxyResp(data)
+                ApiRequest.shared.proxyRespCacheData = data
+                DispatchQueue.main.async {
+                    completeHandler?(proxies)
+                }
+                return
+            }
+
+            if let cachedData = ApiRequest.shared.proxyRespCacheData {
+                let cached = ClashProxyResp(cachedData)
+                let now = Date()
+                if now.timeIntervalSince(ApiRequest.shared.lastProxyCacheFallbackLogDate) >= 15 {
+                    ApiRequest.shared.lastProxyCacheFallbackLogDate = now
+                    Logger.log(
+                        "Proxy API unavailable (status=\(statusCode)); " +
+                            "preserving the last valid menu snapshot with " +
+                            "\(cached.proxiesMap.count) entries",
+                        level: .warning
+                    )
+                }
+                DispatchQueue.main.async {
+                    completeHandler?(cached)
+                }
+                return
+            }
+
+            Logger.log(
+                "Proxy API unavailable (status=\(statusCode)) and no valid snapshot exists",
+                level: .warning
+            )
+            DispatchQueue.main.async {
+                completeHandler?(ClashProxyResp(nil))
+            }
         }
     }
 
     static func requestProxyProviderList(completeHandler: ((ClashProviderResp) -> Void)? = nil) {
         req("/providers/proxies")
-            .responseDecodable(of: ClashProviderResp.self, decoder: ClashProviderResp.decoder) { resp in
+            .responseDecodable(
+                of: ClashProviderResp.self,
+                queue: proxySnapshotDecodeQueue,
+                decoder: ClashProviderResp.decoder
+            ) { resp in
+                let result: ClashProviderResp
                 switch resp.result {
                 case let .success(providerResp):
-                    completeHandler?(providerResp)
+                    result = providerResp
                 case let .failure(err):
                     Logger.log("\(err)")
-                    completeHandler?(ClashProviderResp())
+                    result = ClashProviderResp()
+                }
+                DispatchQueue.main.async {
+                    completeHandler?(result)
                 }
             }
     }
@@ -333,64 +543,624 @@ class ApiRequest {
         }
     }
 
+    /// Fetches a fresh topology for a benchmark preflight. Both requests are
+    /// bounded and owned by the benchmark session so cancellation cannot leave
+    /// a disabled menu action waiting on the API session's normal timeout.
+    static func getMergedProxyData(
+        session: BenchmarkSession,
+        timeout: TimeInterval,
+        complete: @escaping (ClashProxyResp?) -> Void
+    ) {
+        guard !session.isCancelled else {
+            complete(nil)
+            return
+        }
+
+        let stateLock = NSLock()
+        var didComplete = false
+        var provider: ClashProviderResp?
+        var proxyInfo: ClashProxyResp?
+
+        let providerRequest = req("/providers/proxies", timeoutInterval: timeout)
+        let proxyRequest = req("/proxies", timeoutInterval: timeout)
+        let providerRequestID = session.track(providerRequest)
+        let proxyRequestID = session.track(proxyRequest)
+
+        func completeOnce(
+            proxyInfo: ClashProxyResp? = nil,
+            provider: ClashProviderResp? = nil,
+            cancelPendingRequests: Bool = false
+        ) {
+            stateLock.lock()
+            guard !didComplete else {
+                stateLock.unlock()
+                return
+            }
+            didComplete = true
+            stateLock.unlock()
+
+            if cancelPendingRequests {
+                providerRequest.cancel()
+                proxyRequest.cancel()
+            }
+
+            DispatchQueue.main.async {
+                guard !session.isCancelled,
+                      let proxyInfo,
+                      let provider else {
+                    complete(nil)
+                    return
+                }
+                proxyInfo.updateProvider(provider)
+                complete(proxyInfo)
+            }
+        }
+
+        func publishProvider(_ value: ClashProviderResp) {
+            stateLock.lock()
+            guard !didComplete else {
+                stateLock.unlock()
+                return
+            }
+            provider = value
+            let proxyInfo = proxyInfo
+            let provider = provider
+            stateLock.unlock()
+
+            if let proxyInfo, let provider {
+                completeOnce(proxyInfo: proxyInfo, provider: provider)
+            }
+        }
+
+        func publishProxyInfo(_ value: ClashProxyResp) {
+            stateLock.lock()
+            guard !didComplete else {
+                stateLock.unlock()
+                return
+            }
+            proxyInfo = value
+            let proxyInfo = proxyInfo
+            let provider = provider
+            stateLock.unlock()
+
+            if let proxyInfo, let provider {
+                completeOnce(proxyInfo: proxyInfo, provider: provider)
+            }
+        }
+
+        session.onTermination {
+            guard session.isCancelled else { return }
+            completeOnce(cancelPendingRequests: true)
+        }
+
+        providerRequest
+            .responseDecodable(of: ClashProviderResp.self, decoder: ClashProviderResp.decoder) { response in
+                session.finish(providerRequestID)
+                guard !session.isCancelled else {
+                    completeOnce(cancelPendingRequests: true)
+                    return
+                }
+                let statusCode = response.response?.statusCode ?? -1
+                guard (200 ..< 300).contains(statusCode),
+                      case let .success(providerResponse) = response.result else {
+                    Logger.log(
+                        "[Proxy Delay] Benchmark preflight providers unavailable, status: \(statusCode), error: \(response.error?.localizedDescription ?? "unknown error")",
+                        level: .warning
+                    )
+                    completeOnce(cancelPendingRequests: true)
+                    return
+                }
+                publishProvider(providerResponse)
+            }
+
+        proxyRequest.responseData { response in
+            session.finish(proxyRequestID)
+            guard !session.isCancelled else {
+                completeOnce(cancelPendingRequests: true)
+                return
+            }
+            let statusCode = response.response?.statusCode ?? -1
+            guard case let .success(data) = response.result,
+                  (200 ..< 300).contains(statusCode),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  root["proxies"] is [String: Any]
+            else {
+                Logger.log(
+                    "[Proxy Delay] Benchmark preflight topology unavailable, status: \(statusCode), error: \(response.error?.localizedDescription ?? "unknown error")",
+                    level: .warning
+                )
+                completeOnce(cancelPendingRequests: true)
+                return
+            }
+            publishProxyInfo(ClashProxyResp(data))
+        }
+    }
+
     static func getProxyDelay(proxyName: String,
                               benchmarkURL: String = Settings.benchMarkUrl,
                               timeout: Int = 5000,
+                              session: BenchmarkSession? = nil,
                               callback: @escaping ((Int) -> Void)) {
-        Logger.log("[Proxy Delay] Testing proxy '\(proxyName)' with url: \(benchmarkURL)")
-        req("/proxies/\(proxyName.encoded)/delay",
+        getProxyDelayOutcome(proxyName: proxyName, benchmarkURL: benchmarkURL,
+                             timeout: timeout, session: session) { callback($0.delay ?? 0) }
+    }
+
+    static func getProxyDelayOutcome(proxyName: String,
+                                    benchmarkURL: String,
+                                    timeout: Int,
+                                    session: BenchmarkSession?,
+                                    callback: @escaping (ProxyDelayOutcome) -> Void) {
+        requestProxyDelay(
+            path: "/proxies/\(proxyName.encoded)/delay",
+            description: "proxy '\(proxyName)'",
+            benchmarkURL: benchmarkURL,
+            timeout: timeout,
+            session: session,
+            callback: callback
+        )
+    }
+
+    static func getProviderProxyDelay(providerName: ClashProviderName,
+                                      proxyName: ClashProxyName,
+                                      benchmarkURL: String = Settings.benchMarkUrl,
+                                      timeout: Int = 5000,
+                                      session: BenchmarkSession? = nil,
+                                      callback: @escaping ((Int) -> Void)) {
+        getProviderProxyDelayOutcome(providerName: providerName, proxyName: proxyName,
+                                     benchmarkURL: benchmarkURL, timeout: timeout,
+                                     session: session) { callback($0.delay ?? 0) }
+    }
+
+    static func getProviderProxyDelayOutcome(providerName: ClashProviderName,
+                                            proxyName: ClashProxyName,
+                                            benchmarkURL: String,
+                                            timeout: Int,
+                                            session: BenchmarkSession?,
+                                            callback: @escaping (ProxyDelayOutcome) -> Void) {
+        requestProxyDelay(
+            path: "/providers/proxies/\(providerName.encoded)/\(proxyName.encoded)/healthcheck",
+            description: "provider '\(providerName)' proxy '\(proxyName)'",
+            benchmarkURL: benchmarkURL,
+            timeout: timeout,
+            session: session,
+            callback: callback
+        )
+    }
+
+    static func getProxyGroupDelay(groupName: ClashProxyName,
+                                   benchmarkURL: String = Settings.benchMarkUrl,
+                                   expectedStatus: String? = nil,
+                                   timeout: Int = 5000,
+                                   session: BenchmarkSession? = nil,
+                                   callback: @escaping ((ProxyGroupDelayResult) -> Void)) {
+        guard session?.isCancelled != true else {
+            callback(.cancelled)
+            return
+        }
+        Logger.log("[Proxy Delay] Testing group '\(groupName)' with its configured URL")
+        var parameters: Parameters = ["timeout": timeout, "url": benchmarkURL]
+        if let expectedStatus, !expectedStatus.isEmpty {
+            parameters["expected"] = expectedStatus
+        }
+        let request = req(
+            "/group/\(groupName.encoded)/delay",
             method: .get,
-            parameters: ["timeout": timeout, "url": benchmarkURL])
+            parameters: parameters,
+            timeoutInterval: benchmarkRequestTimeout(for: timeout)
+        )
+        let requestID = session?.track(request)
+        request
             .responseData { res in
-                let statusCode = res.response?.statusCode ?? -1
-                switch res.result {
-                case let .success(value):
-                    let json = JSON(value)
-                    let delay = json["delay"].intValue
-                    if delay > 0 {
-                        Logger.log("[Proxy Delay] Proxy '\(proxyName)' succeeded: \(delay) ms, status: \(statusCode)")
-                    } else {
-                        let body = String(data: value, encoding: .utf8) ?? "<non-utf8 body>"
-                        Logger.log("[Proxy Delay] Proxy '\(proxyName)' returned no delay, status: \(statusCode), body: \(body)", level: .warning)
-                    }
-                    callback(delay)
-                case .failure:
-                    let body = res.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
-                    Logger.log("[Proxy Delay] Proxy '\(proxyName)' failed, status: \(statusCode), error: \(res.error?.localizedDescription ?? "unknown error"), body: \(body)", level: .error)
-                    callback(0)
+                if let requestID {
+                    session?.finish(requestID)
                 }
+                guard session?.isCancelled != true else {
+                    callback(.cancelled)
+                    return
+                }
+                let statusCode = res.response?.statusCode ?? -1
+                let outcome = ProxyGroupDelayOutcome.decode(
+                    statusCode: statusCode, data: res.data, transportFailed: res.error != nil
+                )
+                Logger.log("[Proxy Delay] Group '\(groupName)': \(outcome.diagnostic)")
+                callback(outcome)
+            }
+    }
+
+    /// Fetches one current `/proxies` topology without the normal cached-response fallback.
+    static func getFreshProxyGroupList(session: BenchmarkSession,
+                                       callback: @escaping (ClashProxyResp?) -> Void) {
+        guard !session.isCancelled else {
+            callback(nil)
+            return
+        }
+        let request = req(
+            "/proxies",
+            timeoutInterval: benchmarkRequestTimeout(for: 5000)
+        )
+        let requestID = session.track(request)
+        request.responseData { response in
+            session.finish(requestID)
+            guard !session.isCancelled else {
+                callback(nil)
+                return
+            }
+            let statusCode = response.response?.statusCode ?? -1
+            guard case let .success(data) = response.result,
+                  (200 ..< 300).contains(statusCode),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  root["proxies"] is [String: Any]
+            else {
+                Logger.log(
+                    "[Proxy Delay] Fresh proxy topology unavailable, status: \(statusCode), error: \(response.error?.localizedDescription ?? "unknown error")",
+                    level: .warning
+                )
+                callback(nil)
+                return
+            }
+            callback(ClashProxyResp(data))
+        }
+    }
+
+    static func benchmarkLeafProxies(in response: ClashProxyResp,
+                                     benchmarkURL: String,
+                                     timeout: Int,
+                                     maxConcurrent: Int = benchmarkMaxConcurrent,
+                                     session: BenchmarkSession? = nil,
+                                     result: @escaping (LeafProxyBenchmarkResult) -> Void = { _ in },
+                                     completion: @escaping () -> Void) {
+        guard session?.isCancelled != true else {
+            completion()
+            return
+        }
+        typealias DelayTask = LimitedAsyncTaskRunner.Task
+        var tasks = [DelayTask]()
+
+        // GLOBAL.all also contains policy groups. Testing a group recursively
+        // tests its members, often more than once when providers are shared.
+        // Build one task per actual leaf proxy instead.
+        let builtInNames: Set = [
+            "GLOBAL", "DIRECT", "REJECT", "REJECT-DROP",
+            "PASS", "PASS-RULE", "COMPATIBLE"
+        ]
+        var inlineProxyNames = Set<String>()
+        let inlineProxies = response.proxies
+            .filter { proxy in
+                proxy.enclosingProvider == nil
+                    && proxy.all == nil
+                    && proxy.type != .direct
+                    && proxy.type != .reject
+                    && !ClashProxyType.isCompatibilityFallback(proxy)
+                    && !builtInNames.contains(proxy.name)
+            }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+
+        for proxy in inlineProxies where inlineProxyNames.insert(proxy.name).inserted {
+            tasks.append { done in
+                guard session?.isCancelled != true else {
+                    done()
+                    return
+                }
+                getProxyDelayOutcome(
+                    proxyName: proxy.name,
+                    benchmarkURL: benchmarkURL,
+                    timeout: timeout,
+                    session: session
+                ) { outcome in
+                    result(LeafProxyBenchmarkResult(
+                        identity: LeafProxyBenchmarkIdentity(proxy: proxy),
+                        benchmarkURL: benchmarkURL,
+                        outcome: outcome
+                    ))
+                    done()
+                }
+            }
+        }
+
+        var providerProxyKeys = Set<String>()
+        let providers = response.enclosingProviderResp?.providers.values.sorted {
+            $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        } ?? []
+        for provider in providers {
+            let proxies = provider.proxies.sorted {
+                $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }
+            for proxy in proxies {
+                guard !ClashProxyType.isCompatibilityFallback(proxy) else { continue }
+                let key = provider.name + "\u{0}" + proxy.name
+                guard providerProxyKeys.insert(key).inserted else { continue }
+                tasks.append { done in
+                    guard session?.isCancelled != true else {
+                        done()
+                        return
+                    }
+                    getProviderProxyDelayOutcome(
+                        providerName: provider.name,
+                        proxyName: proxy.name,
+                        benchmarkURL: benchmarkURL,
+                        timeout: timeout,
+                        session: session
+                    ) { outcome in
+                        result(LeafProxyBenchmarkResult(
+                            identity: LeafProxyBenchmarkIdentity(proxy: proxy),
+                            benchmarkURL: benchmarkURL,
+                            outcome: outcome
+                        ))
+                        done()
+                    }
+                }
+            }
+        }
+
+        Logger.log(
+            "[Proxy Delay] Starting leaf-only benchmark: "
+                + "\(inlineProxyNames.count) inline, \(providerProxyKeys.count) provider, "
+                + "max concurrency \(max(1, maxConcurrent))"
+        )
+        LimitedAsyncTaskRunner(tasks: tasks, maxConcurrent: maxConcurrent).start(completion: completion)
+    }
+
+    static func benchmarkProxySelection(
+        proxyNames: [ClashProxyName],
+        providerProxies: [ProviderProxyBenchmarkTarget],
+        benchmarkURL: String,
+        timeout: Int,
+        maxConcurrent: Int = benchmarkMaxConcurrent,
+        session: BenchmarkSession,
+        proxyResult: @escaping (ClashProxyName, Int) -> Void,
+        completion: @escaping () -> Void
+    ) {
+        guard !session.isCancelled else {
+            completion()
+            return
+        }
+
+        typealias DelayTask = LimitedAsyncTaskRunner.Task
+        var tasks = [DelayTask]()
+        var uniqueProxyNames = Set<ClashProxyName>()
+        var uniqueProviderProxies = Set<ProviderProxyBenchmarkTarget>()
+
+        for proxyName in proxyNames where uniqueProxyNames.insert(proxyName).inserted {
+            tasks.append { done in
+                guard !session.isCancelled else {
+                    done()
+                    return
+                }
+                getProxyDelay(
+                    proxyName: proxyName,
+                    benchmarkURL: benchmarkURL,
+                    timeout: timeout,
+                    session: session
+                ) { delay in
+                    if !session.isCancelled {
+                        proxyResult(proxyName, delay)
+                    }
+                    done()
+                }
+            }
+        }
+
+        let sortedProviderProxies = providerProxies.sorted {
+            if $0.providerName == $1.providerName {
+                return $0.proxyName.localizedStandardCompare($1.proxyName) == .orderedAscending
+            }
+            return $0.providerName.localizedStandardCompare($1.providerName) == .orderedAscending
+        }
+        for target in sortedProviderProxies where uniqueProviderProxies.insert(target).inserted {
+            tasks.append { done in
+                guard !session.isCancelled else {
+                    done()
+                    return
+                }
+                getProviderProxyDelay(
+                    providerName: target.providerName,
+                    proxyName: target.proxyName,
+                    benchmarkURL: benchmarkURL,
+                    timeout: timeout,
+                    session: session
+                ) { delay in
+                    if !session.isCancelled {
+                        proxyResult(target.proxyName, delay)
+                    }
+                    done()
+                }
+            }
+        }
+
+        Logger.log(
+            "[Proxy Delay] Starting selected benchmark: " +
+                "\(uniqueProxyNames.count) inline, " +
+                "\(uniqueProviderProxies.count) provider proxy, " +
+                "max concurrency \(max(1, maxConcurrent))"
+        )
+        LimitedAsyncTaskRunner(tasks: tasks, maxConcurrent: maxConcurrent)
+            .start(completion: completion)
+    }
+
+    static func benchmarkSelectorPlan(
+        _ plan: SelectorBenchmarkPlan,
+        reusing measurements: [SelectorBenchmarkMeasurementKey: Int] = [:],
+        session: BenchmarkSession,
+        result: @escaping (SelectorBenchmarkPlan.Target, ProxyDelayOutcome) -> Void,
+        completion: @escaping () -> Void
+    ) {
+        guard !session.isCancelled else {
+            completion()
+            return
+        }
+
+        let resultQueue = DispatchQueue(label: "com.clashfx.selectorBenchmarkResults")
+        let benchmarkStartedAt = Date()
+        var didLogFirstResult = false
+
+        let runTarget: (SelectorBenchmarkPlan.Target, @escaping (ProxyDelayOutcome) -> Void) -> Void = { target, done in
+            guard !session.isCancelled else {
+                done(.cancelled)
+                return
+            }
+            switch target.key.endpoint {
+            case .inline:
+                getProxyDelayOutcome(
+                    proxyName: target.key.proxyName,
+                    benchmarkURL: target.key.benchmarkURL,
+                    timeout: target.key.timeout,
+                    session: session,
+                    callback: done
+                )
+            case .provider:
+                guard let providerName = target.key.providerName else {
+                    Logger.log(
+                        "[Proxy Delay] Selector provider target '\(target.key.proxyName)' has no provider name",
+                        level: .error
+                    )
+                    done(.unavailable)
+                    return
+                }
+                getProviderProxyDelayOutcome(
+                    providerName: providerName,
+                    proxyName: target.key.proxyName,
+                    benchmarkURL: target.key.benchmarkURL,
+                    timeout: target.key.timeout,
+                    session: session,
+                    callback: done
+                )
+            }
+        }
+
+        SelectorBenchmarkExecutor.runOutcomes(
+            plan: plan,
+            reusing: measurements,
+            isCancelled: { session.isCancelled },
+            request: runTarget,
+            result: { target, delay in
+                resultQueue.sync {
+                    if !didLogFirstResult {
+                        didLogFirstResult = true
+                        Logger.log(
+                            "[Proxy Delay] Selector first result after "
+                                + String(format: "%.2f", Date().timeIntervalSince(benchmarkStartedAt)) + "s"
+                        )
+                    }
+                }
+                result(target, delay)
+            },
+            limitChanged: { previousLimit, currentLimit in
+                Logger.log(
+                    "[Proxy Delay] Adaptive Selector concurrency changed "
+                        + "from \(previousLimit) to \(currentLimit)"
+                )
+            },
+            completion: {
+                guard !session.isCancelled else {
+                    completion()
+                    return
+                }
+
+                Logger.log(
+                    "[Proxy Delay] Selector benchmark completed in "
+                        + String(format: "%.2f", Date().timeIntervalSince(benchmarkStartedAt))
+                        + "s"
+                )
+                completion()
+            }
+        )
+    }
+
+    private static func benchmarkRequestTimeout(for coreTimeoutMilliseconds: Int) -> TimeInterval {
+        max(
+            benchmarkMinimumRequestTimeout,
+            Double(coreTimeoutMilliseconds) / 1000 + benchmarkRequestTimeoutMargin
+        )
+    }
+
+    private static func requestProxyDelay(path: String,
+                                          description: String,
+                                          benchmarkURL: String,
+                                          timeout: Int,
+                                          session: BenchmarkSession?,
+                                          callback: @escaping (ProxyDelayOutcome) -> Void) {
+        guard session?.isCancelled != true else {
+            callback(.cancelled)
+            return
+        }
+        Logger.log("[Proxy Delay] Testing \(description) with url: \(benchmarkURL)")
+        let request = req(
+            path,
+            method: .get,
+            parameters: ["timeout": timeout, "url": benchmarkURL],
+            timeoutInterval: benchmarkRequestTimeout(for: timeout)
+        )
+        let requestID = session?.track(request)
+        request
+            .responseData { res in
+                if let requestID {
+                    session?.finish(requestID)
+                }
+                guard session?.isCancelled != true else {
+                    Logger.log("[Proxy Delay] Cancelled \(description)", level: .debug)
+                    callback(.cancelled)
+                    return
+                }
+                let statusCode = res.response?.statusCode ?? -1
+                let outcome = ProxyDelayOutcome.decode(
+                    statusCode: statusCode, data: res.data, transportFailed: res.error != nil
+                )
+                Logger.log("[Proxy Delay] \(description): \(outcome), status: \(statusCode)")
+                callback(outcome)
             }
     }
 
     static func getRules(completeHandler: @escaping ([ClashRule]) -> Void) {
         req("/rules").responseData { res in
-            guard let data = try? res.result.get() else { return }
-            let rule = ClashRuleResponse.fromData(data)
-            completeHandler(rule.rules ?? [])
+            let statusCode = res.response?.statusCode ?? -1
+            if case let .success(data) = res.result,
+               (200 ..< 300).contains(statusCode),
+               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               root["rules"] is [Any] {
+                let rule = ClashRuleResponse.fromData(data)
+                let rules = rule.rules ?? []
+                ApiRequest.shared.rulesCache = rules
+                completeHandler(rules)
+                return
+            }
+
+            Logger.log(
+                "Rules API unavailable (status=\(statusCode)); preserving the last " +
+                    "valid snapshot with \(ApiRequest.shared.rulesCache.count) rules",
+                level: .warning
+            )
+            completeHandler(ApiRequest.shared.rulesCache)
         }
     }
 
-    static func healthCheck(proxy: ClashProviderName, completeHandler: (() -> Void)? = nil) {
+    static func healthCheck(
+        proxy: ClashProviderName,
+        requestTimeout: TimeInterval? = nil,
+        session: BenchmarkSession? = nil,
+        completeHandler: (() -> Void)? = nil
+    ) {
+        guard session?.isCancelled != true else {
+            completeHandler?()
+            return
+        }
         Logger.log("HeathCheck for \(proxy) started")
-        req("/providers/proxies/\(proxy.encoded)/healthcheck").response { res in
+        let request = req(
+            "/providers/proxies/\(proxy.encoded)/healthcheck",
+            timeoutInterval: requestTimeout
+        )
+        let requestID = session?.track(request)
+        request.response { res in
+            if let requestID {
+                session?.finish(requestID)
+            }
+            guard session?.isCancelled != true else {
+                completeHandler?()
+                return
+            }
             if res.response?.statusCode == 204 {
                 Logger.log("HeathCheck for \(proxy) finished")
             } else {
                 Logger.log("HeathCheck for \(proxy) failed:\(res.response?.statusCode ?? -1)")
-            }
-            completeHandler?()
-        }
-    }
-
-    static func resetAutoProxyGroup(group: ClashProxyName, completeHandler: (() -> Void)? = nil) {
-        Logger.log("[Proxy ReTest] Resetting auto proxy group '\(group)'")
-        req("/proxies/\(group.encoded)", method: .delete).responseData { res in
-            let statusCode = res.response?.statusCode ?? -1
-            if statusCode == 204 {
-                Logger.log("[Proxy ReTest] Auto proxy group '\(group)' reset")
-            } else {
-                let body = res.data.flatMap { String(data: $0, encoding: .utf8) } ?? "<empty body>"
-                Logger.log("[Proxy ReTest] Failed resetting auto proxy group '\(group)', status: \(statusCode), body: \(body)", level: .warning)
             }
             completeHandler?()
         }

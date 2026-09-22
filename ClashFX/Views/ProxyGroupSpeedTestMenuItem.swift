@@ -9,14 +9,54 @@
 import Carbon
 import Cocoa
 
+private final class SelectorBenchmarkPresentationCoalescer {
+    private struct Key: Hashable {
+        let selectorName: ClashProxyName
+        let rowName: ClashProxyName
+    }
+
+    private var pending = [Key: SelectorBenchmarkPresentation]()
+    private var flushWorkItem: DispatchWorkItem?
+    private let delay: TimeInterval = 0.15
+
+    func enqueue(_ presentation: SelectorBenchmarkPresentation) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        let key = Key(
+            selectorName: presentation.selectorName,
+            rowName: presentation.rowName
+        )
+        pending[key] = presentation
+        guard flushWorkItem == nil else { return }
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.flush()
+        }
+        flushWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: workItem)
+    }
+
+    func flush() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        flushWorkItem?.cancel()
+        flushWorkItem = nil
+        let presentations = Array(pending.values)
+        pending.removeAll(keepingCapacity: true)
+        presentations.forEach(SelectorBenchmarkPresentationStore.publish)
+    }
+}
+
 class ProxyGroupSpeedTestMenuItem: NSMenuItem {
-    let proxyGroup: ClashProxy
+    private(set) var proxyGroup: ClashProxy
+    // ClashProxy.enclosingResp is weak. Retain and refresh the action's own
+    // topology just as the visible rows do, so begin/settle use matching IDs
+    // after another group's benchmark has replaced the menu snapshot.
+    private var proxySnapshot: ClashProxyResp?
     let testType: TestType
     private var isTesting = false
-    private var refreshTimer: Timer?
+    private var benchmarkActionSession: ApiRequest.BenchmarkSession?
 
     init(group: ClashProxy) {
         proxyGroup = group
+        proxySnapshot = group.enclosingResp
         if group.type.isAutoGroup {
             testType = .reTest
         } else if group.type == .select {
@@ -26,6 +66,8 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
         }
 
         super.init(title: NSLocalizedString("Benchmark", comment: ""), action: nil, keyEquivalent: "")
+        NotificationCenter.default.addObserver(self, selector: #selector(proxyGroupUpdated(_:)),
+                                              name: .proxyUpdate(for: group.name), object: nil)
         target = self
         action = #selector(healthCheck)
 
@@ -44,6 +86,21 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
         fatalError("init(coder:) has not been implemented")
     }
 
+    deinit { NotificationCenter.default.removeObserver(self) }
+
+    @objc private func proxyGroupUpdated(_ notification: Notification) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.proxyGroupUpdated(notification) }
+            return
+        }
+        guard let group = notification.object as? ClashProxy,
+              group.name == proxyGroup.name, group.type == proxyGroup.type,
+              let snapshot = group.enclosingResp,
+              snapshot.proxiesMap[group.name] === group else { return }
+        proxyGroup = group
+        proxySnapshot = snapshot
+    }
+
     @objc func healthCheck() {
         guard testType == .reTest else { return }
         retestAutoGroup()
@@ -52,27 +109,204 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
     func retestAutoGroup() {
         guard testType == .reTest else { return }
         guard !isTesting else { return }
-
-        isTesting = true
-        isEnabled = false
-        updateViewTitle(NSLocalizedString("Testing", comment: ""))
-
-        ApiRequest.resetAutoProxyGroup(group: proxyGroup.name) {
-            self.scheduleMenuRefresh()
+        if (proxyGroup.all ?? []).allSatisfy({ $0 == "COMPATIBLE" })
+            || proxyGroup.enclosingResp.map({ !$0.hasBenchmarkCandidates(in: proxyGroup.name) }) == true {
+            updateViewTitle(NSLocalizedString("No testable proxy nodes", comment: ""))
+            return
         }
-    }
-
-    private func scheduleMenuRefresh() {
-        let timer = Timer(timeInterval: 0.5, repeats: false) { _ in
-            MenuItemFactory.refreshExistingMenuItems()
+        guard let session = AppDelegate.shared.beginSpeedTest(showNotifications: false) else {
+            return
         }
-        refreshTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
+
+        beginBenchmarkAction(session: session)
+        let presentationSessionIdentifier = UUID()
+        AutomaticGroupBenchmarkPresentationStore.begin(
+            group: proxyGroup,
+            sessionIdentifier: presentationSessionIdentifier
+        )
+        AutomaticChildBenchmarkStore.begin(
+            group: proxyGroup,
+            sessionIdentifier: presentationSessionIdentifier
+        )
+
+        var didFinish = false
+        var bestKnownLeaf = proxyGroup.now
+        let didFinishAction: () -> Void = { [weak self] in
+            guard let self else { return }
+            DispatchQueue.main.async {
+                guard !didFinish else { return }
+                didFinish = true
+                if session.isCancelled {
+                    AutomaticGroupBenchmarkPresentationStore.settleTestingAsUnavailable(
+                        groupName: self.proxyGroup.name,
+                        finalLeaf: bestKnownLeaf,
+                        sessionIdentifier: presentationSessionIdentifier
+                    )
+                    AutomaticChildBenchmarkStore.settleTestingAsUnavailable(
+                        groupName: self.proxyGroup.name,
+                        sessionIdentifier: presentationSessionIdentifier
+                    )
+                }
+                if AppDelegate.shared.isActiveBenchmarkSession(session) {
+                    AppDelegate.shared.finishSpeedTest(session: session, showNotifications: false)
+                }
+            }
+        }
+
+        session.onTermination { [weak self] in
+            guard let self else { return }
+            AutomaticGroupBenchmarkPresentationStore.settleTestingAsUnavailable(
+                groupName: self.proxyGroup.name,
+                finalLeaf: bestKnownLeaf,
+                sessionIdentifier: presentationSessionIdentifier
+            )
+            AutomaticChildBenchmarkStore.settleTestingAsUnavailable(
+                groupName: self.proxyGroup.name,
+                sessionIdentifier: presentationSessionIdentifier
+            )
+        }
+
+        let benchmarkURL = proxyGroup.testUrl
+            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 }
+            ?? Settings.benchMarkUrl
+
+        ApiRequest.getProxyGroupDelay(
+            groupName: proxyGroup.name,
+            benchmarkURL: benchmarkURL,
+            expectedStatus: proxyGroup.expectedStatus,
+            timeout: 5000,
+            session: session
+        ) { result in
+            DispatchQueue.main.async {
+                guard !session.isCancelled,
+                      AppDelegate.shared.isActiveBenchmarkSession(session) else {
+                    didFinishAction()
+                    return
+                }
+
+                let candidateDelays = result.candidateDelays
+
+                ApiRequest.getMergedProxyData(session: session, timeout: 10) { snapshot in
+                    DispatchQueue.main.async {
+                        guard !session.isCancelled,
+                              AppDelegate.shared.isActiveBenchmarkSession(session) else {
+                            didFinishAction()
+                            return
+                        }
+                        guard let snapshot else {
+                            Logger.log(
+                                "[Proxy Delay] Automatic group '\(self.proxyGroup.name)' has no fresh topology after \(result.diagnostic)",
+                                level: .warning
+                            )
+                            AutomaticGroupBenchmarkPresentationStore.settleTestingAsUnavailable(
+                                groupName: self.proxyGroup.name,
+                                finalLeaf: bestKnownLeaf,
+                                sessionIdentifier: presentationSessionIdentifier
+                            )
+                            AutomaticChildBenchmarkStore.settleTestingAsUnavailable(
+                                groupName: self.proxyGroup.name,
+                                sessionIdentifier: presentationSessionIdentifier
+                            )
+                            didFinishAction()
+                            return
+                        }
+
+                        guard let freshGroup = snapshot.proxiesMap[self.proxyGroup.name],
+                              freshGroup.type.isAutoGroup else {
+                            AutomaticGroupBenchmarkPresentationStore.settleTestingAsUnavailable(
+                                groupName: self.proxyGroup.name,
+                                finalLeaf: bestKnownLeaf,
+                                sessionIdentifier: presentationSessionIdentifier
+                            )
+                            AutomaticChildBenchmarkStore.settleTestingAsUnavailable(
+                                groupName: self.proxyGroup.name,
+                                sessionIdentifier: presentationSessionIdentifier
+                            )
+                            didFinishAction()
+                            return
+                        }
+
+                        AutomaticChildBenchmarkStore.settle(
+                            group: freshGroup,
+                            candidateDelays: candidateDelays,
+                            hasProbeEvidence: result.hasProbeEvidence,
+                            sessionIdentifier: presentationSessionIdentifier
+                        )
+
+                        let retestSnapshot = AutomaticGroupRetestSnapshot.make(
+                            groupName: self.proxyGroup.name,
+                            candidateDelays: candidateDelays,
+                            snapshot: snapshot
+                        )
+                        bestKnownLeaf = retestSnapshot.finalLeaf ?? bestKnownLeaf
+                        let displayName: String = {
+                            guard let leaf = retestSnapshot.finalLeaf,
+                                  leaf != self.proxyGroup.name else { return self.proxyGroup.name }
+                            return "\(self.proxyGroup.name) → \(leaf)"
+                        }()
+                        let state: ProxyBenchmarkRowState
+                        switch retestSnapshot.evidence {
+                        case let .measured(delay):
+                            state = .measured(displayName: displayName, delay: delay)
+                        case .zeroDelay:
+                            state = .failed(displayName: displayName)
+                        case let .unavailable(reason):
+                            Logger.log(
+                                "[Proxy Delay] Automatic group '\(self.proxyGroup.name)' path unavailable after \(result.diagnostic): \(reason)",
+                                level: .warning
+                            )
+                            state = .unavailable(displayName: displayName)
+                        case .noMatchingCandidate:
+                            Logger.log(
+                                "[Proxy Delay] Automatic group '\(self.proxyGroup.name)' has no current-run evidence on fresh path '\(retestSnapshot.selectedPath.joined(separator: " → "))' after \(result.diagnostic)",
+                                level: .warning
+                            )
+                            state = result.hasProbeEvidence
+                                ? .failed(displayName: displayName) : .unavailable(displayName: displayName)
+                        }
+                        AutomaticGroupBenchmarkPresentationStore.publish(
+                            AutomaticGroupBenchmarkPresentation(
+                                identity: AutomaticGroupBenchmarkIdentity(
+                                    group: freshGroup,
+                                    fallbackBenchmarkURL: Settings.benchMarkUrl
+                                ),
+                                selectedPath: retestSnapshot.selectedPath,
+                                finalLeaf: retestSnapshot.finalLeaf ?? bestKnownLeaf,
+                                finalLeafID: (retestSnapshot.finalLeaf ?? bestKnownLeaf).flatMap { snapshot.proxiesMap[$0]?.id },
+                                sessionIdentifier: presentationSessionIdentifier,
+                                rowState: state
+                            )
+                        )
+                        didFinishAction()
+                    }
+                }
+            }
+        }
     }
 
     private func updateViewTitle(_ title: String) {
         self.title = title
         (view as? ProxyGroupSpeedTestMenuItemView)?.updateTitle(title)
+    }
+
+    func beginBenchmarkAction(session: ApiRequest.BenchmarkSession) {
+        benchmarkActionSession = session
+        isTesting = true
+        // Disabling the active custom-view item can end AppKit menu tracking.
+        // Keep it enabled and let the benchmark session reject repeat clicks.
+        updateViewTitle(NSLocalizedString("Testing", comment: ""))
+        session.onTermination { [weak self] in
+            self?.finishBenchmarkActionIfOwned(session: session)
+        }
+    }
+
+    @discardableResult
+    func finishBenchmarkActionIfOwned(session: ApiRequest.BenchmarkSession) -> Bool {
+        guard benchmarkActionSession === session else { return false }
+        benchmarkActionSession = nil
+        isTesting = false
+        updateViewTitle(testType.title)
+        return true
     }
 }
 
@@ -127,52 +361,308 @@ private class ProxyGroupSpeedTestMenuItemView: MenuItemBaseView {
     }
 
     private func startBenchmark() {
-        guard let group = (enclosingMenuItem as? ProxyGroupSpeedTestMenuItem)?.proxyGroup
-        else { return }
-        let testGroup = DispatchGroup()
+        guard let speedTestItem = enclosingMenuItem as? ProxyGroupSpeedTestMenuItem else {
+            return
+        }
+        let group = speedTestItem.proxyGroup
+        guard let session = AppDelegate.shared.beginSpeedTest(showNotifications: false) else {
+            return
+        }
 
-        var proxies = [ClashProxyName]()
-        var providers = Set<ClashProviderName>()
-        for testable in group.speedtestAble {
-            switch testable {
-            case let .provider(_, provider):
-                providers.insert(provider)
-            case let .proxy(name):
-                proxies.append(name)
+        speedTestItem.beginBenchmarkAction(session: session)
+
+        var plan: SelectorBenchmarkPlan?
+        var reusableMeasurements = [SelectorBenchmarkMeasurementKey: Int]()
+        var pendingRows = Set<ClashProxyName>()
+        var selectorBenchmarkURL = Settings.benchMarkUrl
+        let sessionIdentifier = UUID()
+        let presentationCoalescer = SelectorBenchmarkPresentationCoalescer()
+        let publishState: (SelectorBenchmarkRow, ProxyBenchmarkRowState) -> Void = { row, state in
+            SelectorBenchmarkPresentationStore.publish(
+                SelectorBenchmarkPresentation(
+                    selectorName: group.name,
+                    rowName: row.rowName,
+                    resolvedLeafName: row.measurementKey?.proxyName,
+                    resolvedCoreID: row.measurementKey?.coreID,
+                    benchmarkURL: row.measurementKey?.benchmarkURL ?? selectorBenchmarkURL,
+                    sessionIdentifier: sessionIdentifier,
+                    rowState: state
+                )
+            )
+        }
+        let publishAutomaticState: (
+            SelectorBenchmarkRow,
+            SelectorBenchmarkAutomaticRetestTarget,
+            ClashProxy?,
+            ProxyBenchmarkRowState
+        ) -> Void = { row, target, finalLeaf, state in
+            SelectorBenchmarkPresentationStore.publish(
+                SelectorBenchmarkPresentation(
+                    selectorName: group.name,
+                    rowName: row.rowName,
+                    resolvedLeafName: finalLeaf?.name,
+                    resolvedCoreID: finalLeaf?.id,
+                    benchmarkURL: target.benchmarkURL,
+                    sessionIdentifier: sessionIdentifier,
+                    rowState: state
+                )
+            )
+        }
+        let publishResult: (SelectorBenchmarkPlan.Target, ProxyDelayOutcome) -> Void = { target, outcome in
+            DispatchQueue.main.async {
+                guard !session.isCancelled,
+                      AppDelegate.shared.isActiveBenchmarkSession(session) else {
+                    return
+                }
+                guard outcome != .cancelled else { return }
+                for row in target.aliases {
+                    guard pendingRows.remove(row.rowName) != nil else { continue }
+                    let state = outcome.rowState(name: row.displayName)
+                    presentationCoalescer.enqueue(
+                        SelectorBenchmarkPresentation(
+                            selectorName: group.name,
+                            rowName: row.rowName,
+                            resolvedLeafName: row.measurementKey?.proxyName,
+                            resolvedCoreID: row.measurementKey?.coreID,
+                            benchmarkURL: row.measurementKey?.benchmarkURL ?? selectorBenchmarkURL,
+                            sessionIdentifier: sessionIdentifier,
+                            rowState: state
+                        )
+                    )
+                }
+                let identity = LeafProxyBenchmarkIdentity(
+                    endpoint: target.key.endpoint,
+                    providerName: target.key.providerName,
+                    proxyName: target.key.proxyName,
+                    coreID: target.key.coreID
+                )
+                let state = outcome.rowState(name: target.key.proxyName)
+                GlobalLeafBenchmarkPresentationStore.publish(
+                    GlobalLeafBenchmarkPresentation(
+                        identity: identity,
+                        benchmarkURL: target.key.benchmarkURL,
+                        sessionIdentifier: sessionIdentifier,
+                        rowState: state
+                    )
+                )
             }
         }
 
-        for proxyName in proxies {
-            testGroup.enter()
-            ApiRequest.getProxyDelay(proxyName: proxyName) { delay in
-                let delayStr = delay == 0 ? NSLocalizedString("fail", comment: "") : "\(delay) ms"
-                NotificationCenter.default.post(name: .speedTestFinishForProxy,
-                                                object: nil,
-                                                userInfo: ["proxyName": proxyName, "delay": delayStr, "rawValue": delay])
-                testGroup.leave()
+        var didFinish = false
+        let finish = { [weak speedTestItem] in
+            DispatchQueue.main.async {
+                guard !didFinish else { return }
+                didFinish = true
+                presentationCoalescer.flush()
+                if AppDelegate.shared.isActiveBenchmarkSession(session) {
+                    AppDelegate.shared.finishSpeedTest(
+                        session: session,
+                        showNotifications: false
+                    )
+                }
+                speedTestItem?.finishBenchmarkActionIfOwned(session: session)
+            }
+        }
+        let retestSelectedAutomaticGroup: (@escaping () -> Void) -> Void = { continuation in
+            guard !session.isCancelled,
+                  AppDelegate.shared.isActiveBenchmarkSession(session),
+                  let plan,
+                  let target = plan.selectedAutomaticRetest else {
+                continuation()
+                return
+            }
+            let deferredRows = plan.orderedRows.filter(\.isDeferredAutomaticRetest)
+            guard !deferredRows.isEmpty else {
+                continuation()
+                return
+            }
+
+            let automaticRetestStartedAt = Date()
+            Logger.log(
+                "[Proxy Delay] Refreshing selected automatic group '\(target.groupName)' with the Selector benchmark URL before other rows"
+            )
+
+            ApiRequest.getProxyGroupDelay(
+                groupName: target.groupName,
+                benchmarkURL: target.benchmarkURL,
+                expectedStatus: target.expectedStatus,
+                timeout: 5000,
+                session: session
+            ) { result in
+                DispatchQueue.main.async {
+                    guard !session.isCancelled,
+                          AppDelegate.shared.isActiveBenchmarkSession(session) else {
+                        finish()
+                        return
+                    }
+
+                    ApiRequest.getMergedProxyData(session: session, timeout: 10) { snapshot in
+                        DispatchQueue.main.async {
+                            guard !session.isCancelled,
+                                  AppDelegate.shared.isActiveBenchmarkSession(session) else {
+                                finish()
+                                return
+                            }
+                            guard let snapshot else {
+                                Logger.log(
+                                    "[Proxy Delay] Selected automatic group '\(target.groupName)' has no fresh topology after \(result.diagnostic)",
+                                    level: .warning
+                                )
+                                for row in deferredRows where pendingRows.remove(row.rowName) != nil {
+                                    publishAutomaticState(
+                                        row,
+                                        target,
+                                        nil,
+                                        .unavailable(displayName: row.displayName)
+                                    )
+                                }
+                                continuation()
+                                return
+                            }
+
+                            guard let freshGroup = snapshot.proxiesMap[target.groupName],
+                                  freshGroup.type.isAutoGroup else {
+                                for row in deferredRows where pendingRows.remove(row.rowName) != nil {
+                                    publishAutomaticState(
+                                        row,
+                                        target,
+                                        nil,
+                                        .unavailable(displayName: row.displayName)
+                                    )
+                                }
+                                continuation()
+                                return
+                            }
+
+                            for memberName in freshGroup.all ?? [] {
+                                guard let leaf = snapshot.proxiesMap[memberName],
+                                      leaf.all == nil,
+                                      !ClashProxyType.isCompatibilityFallback(leaf),
+                                      !ClashProxyType.isProxyGroup(leaf),
+                                      let delay = result.candidateDelays[memberName] else { continue }
+                                let state: ProxyBenchmarkRowState = delay > 0
+                                    ? .measured(displayName: memberName, delay: delay)
+                                    : .failed(displayName: memberName)
+                                GlobalLeafBenchmarkPresentationStore.publish(
+                                    GlobalLeafBenchmarkPresentation(
+                                        identity: LeafProxyBenchmarkIdentity(proxy: leaf),
+                                        benchmarkURL: target.benchmarkURL,
+                                        sessionIdentifier: sessionIdentifier,
+                                        rowState: state
+                                    )
+                                )
+                            }
+                            reusableMeasurements = plan.reusableMeasurements(
+                                group: freshGroup,
+                                candidateDelays: result.candidateDelays,
+                                timeout: 5000
+                            )
+
+                            let retestSnapshot = AutomaticGroupRetestSnapshot.make(
+                                groupName: target.groupName,
+                                candidateDelays: result.candidateDelays,
+                                snapshot: snapshot
+                            )
+                            // Keep the menu row width and identity stable. The
+                            // authoritative final leaf is retained separately in
+                            // the presentation and exposed as the item's tooltip.
+                            let displayName = target.groupName
+                            let state: ProxyBenchmarkRowState
+                            switch retestSnapshot.evidence {
+                            case let .measured(delay):
+                                state = .measured(displayName: displayName, delay: delay)
+                            case .zeroDelay:
+                                state = .failed(displayName: displayName)
+                            case let .unavailable(reason):
+                                Logger.log(
+                                    "[Proxy Delay] Selected automatic group '\(target.groupName)' path unavailable after \(result.diagnostic): \(reason)",
+                                    level: .warning
+                                )
+                                state = .unavailable(displayName: displayName)
+                            case .noMatchingCandidate:
+                                Logger.log(
+                                    "[Proxy Delay] Selected automatic group '\(target.groupName)' has no current-run evidence on fresh path '\(retestSnapshot.selectedPath.joined(separator: " → "))' after \(result.diagnostic)",
+                                    level: .warning
+                                )
+                                state = result.hasProbeEvidence
+                                    ? .failed(displayName: displayName) : .unavailable(displayName: displayName)
+                            }
+                            for row in deferredRows where pendingRows.remove(row.rowName) != nil {
+                                publishAutomaticState(
+                                    row,
+                                    target,
+                                    retestSnapshot.finalLeaf.flatMap { snapshot.proxiesMap[$0] },
+                                    state
+                                )
+                            }
+                            Logger.log(
+                                "[Proxy Delay] Selected automatic group '\(target.groupName)' completed in "
+                                    + String(format: "%.2f", Date().timeIntervalSince(automaticRetestStartedAt))
+                                    + "s; starting Selector rows"
+                            )
+                            continuation()
+                        }
+                    }
+                }
             }
         }
 
-        label.stringValue = NSLocalizedString("Testing", comment: "")
-        enclosingMenuItem?.isEnabled = false
-        setNeedsDisplay()
-
-        for provider in providers {
-            testGroup.enter()
-
-            ApiRequest.healthCheck(proxy: provider) {
-                testGroup.leave()
+        ApiRequest.getMergedProxyData(session: session, timeout: 10) { response in
+            guard let response, let selector = response.proxiesMap[group.name] else {
+                finish()
+                return
             }
-        }
-
-        testGroup.notify(queue: .main) {
-            [weak self] in
-            guard let self = self, let menu = self.enclosingMenuItem else { return }
-            self.label.stringValue = menu.title
-            menu.isEnabled = true
-            self.setNeedsDisplay()
-            if !providers.isEmpty {
-                MenuItemFactory.refreshExistingMenuItems()
+            selectorBenchmarkURL = selector.effectiveBenchmarkURL(
+                fallback: Settings.benchMarkUrl
+            )
+            plan = SelectorBenchmarkPlan.make(
+                selector: selector,
+                snapshot: response,
+                benchmarkURL: selectorBenchmarkURL,
+                timeout: 5000
+            )
+            guard let plan else {
+                finish()
+                return
+            }
+            DispatchQueue.main.async {
+                guard !session.isCancelled,
+                      AppDelegate.shared.isActiveBenchmarkSession(session) else {
+                    finish()
+                    return
+                }
+                SelectorBenchmarkPresentationStore.clear(selectorName: group.name)
+                pendingRows = Set(plan.orderedRows.compactMap { row in
+                    row.measurementKey == nil && !row.isDeferredAutomaticRetest
+                        ? nil
+                        : row.rowName
+                })
+                session.onTermination {
+                    // terminate() delivers on main. Settle synchronously before
+                    // a subsequent session can own these rows; the old session
+                    // has already lost AppDelegate ownership at this point.
+                    guard session.isCancelled else { return }
+                    presentationCoalescer.flush()
+                    for row in plan.orderedRows where pendingRows.remove(row.rowName) != nil {
+                        publishState(row, .unavailable(displayName: row.displayName))
+                    }
+                }
+                for row in plan.orderedRows {
+                    if row.measurementKey == nil && !row.isDeferredAutomaticRetest {
+                        publishState(row, .unavailable(displayName: row.displayName))
+                    } else {
+                        publishState(row, .testing(displayName: row.displayName))
+                    }
+                }
+                retestSelectedAutomaticGroup {
+                    ApiRequest.benchmarkSelectorPlan(
+                        plan,
+                        reusing: reusableMeasurements,
+                        session: session,
+                        result: publishResult,
+                        completion: finish
+                    )
+                }
             }
         }
     }

@@ -6,6 +6,667 @@
     <description>Most recent ClashFX updates</description>
     <language>en</language>
     <item>
+  <title>Version 1.1.11.4 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.4 (Lab)</h2><ul><li><strong>Reach a Locked Residential Proxy Through the Fast Relay</strong> — Claude Proxy Lock still sends Claude Desktop, Claude Helper, and the Anthropic domains out through the selected node. The connection to that node's server is now dialed by the proxy currently selected in the MATCH rule, instead of directly from this Mac.</li></ul>
+  ]]></description>
+  <pubDate>Tue, 22 Sep 2026 10:55:08 +0000</pubDate>
+  <sparkle:version>1001011004</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.4</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.4/ClashFX.dmg"
+    sparkle:version="1001011004"
+    sparkle:shortVersionString="1.1.11.4"
+    sparkle:edSignature="GU+am8vYhqI+Kjid9rdEOwFFtAJTtE9kRt55OLPTwHRSl3JpOw7OqJa4VsqF8dENdETRwDDWzfuh240aDr6VAg=="
+    length="95320277"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.11.3 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.3 (Lab)</h2><ul><li><strong>Benchmark Details Stay Out of the Way</strong> — Benchmark details no longer appear as a whole-row tooltip while testing. After completion, they are available only when hovering the delay value, use the clearer “Measured at” wording, and continue to mark retained historical results with `*`. Text-only legacy menus avoid restoring a disruptive row-wide tooltip. (#219, #236)</li><li><strong>Choose How Menu-Bar Speeds Align</strong> — Appearance settings now offer left, center, and right alignment for the upload/download speed lines. Changes apply immediately and persist across launches; right alignment remains the default. Both the legacy label renderer and the macOS 26+ direct-drawing path are covered.</li></ul>
+  ]]></description>
+  <pubDate>Sun, 20 Sep 2026 03:21:29 +0000</pubDate>
+  <sparkle:version>1001011003</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.3</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.3/ClashFX.dmg"
+    sparkle:version="1001011003"
+    sparkle:shortVersionString="1.1.11.3"
+    sparkle:edSignature="D+TNoswqzLm662j79J/LiiYFV7RhpveUq+KsqZHwSQAhm+p+4UisQI3pKgGkYmp9XL6uPhlvbax6Es4lQTExAQ=="
+    length="95288274"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.11.2 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.2 (Lab)</h2><ul><li><strong>Correct Proxy Benchmark Results</strong> — Empty regional groups using Mihomo's COMPATIBLE direct fallback no longer display a successful proxy delay. Explicit DIRECT entries remain testable, and results are isolated by node identity, provider, URL and expected status. (#219, #236)</li><li><strong>Reliable Menu Refresh and Retesting</strong> — Preserve valid recent measurements across menu rebuilds, mark historical results, and distinguish API outages from genuine probe failures. Consecutive group tests keep their snapshots valid; cancelled or obsolete callbacks cannot overwrite newer results.</li><li><strong>More Readable Legacy Dashboard Themes</strong> — The old-WebKit fallback now covers bottom navigation and popup backgrounds, improves muted text and selected-state contrast, and handles changing CSS classes with batched updates. Modern WebKit retains upstream styling. (#221)</li><li><strong>Consistent Lab Build Compatibility</strong> — Pin the Actions toolchain to Xcode 26.6 and check Intel/Apple Silicon architectures plus the declared minimum macOS versions of the app, helper and core, including the packaged DMG.</li></ul>
+  ]]></description>
+  <pubDate>Sat, 19 Sep 2026 16:06:04 +0000</pubDate>
+  <sparkle:version>1001011002</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.2</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.2/ClashFX.dmg"
+    sparkle:version="1001011002"
+    sparkle:shortVersionString="1.1.11.2"
+    sparkle:edSignature="CrCtae/9axFw+8qFa+v9IxArNX25KEENlMRpc4vfeEk60iZeCqZ23KVtSgo965a/8EoQobL7PFGwLQD6T8P9Cw=="
+    length="95267176"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.11.1 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11.1 (Lab)</h2><ul><li><strong>Claude Proxy Lock Fails Closed on One Chosen Node</strong> — A new menu action pins Claude Desktop, Claude Code process traffic, and Anthropic web domains to one concrete proxy in Enhanced Mode. ClashFX forces Rule mode and System Proxy, restores either if another controller changes them, blocks their manual shutdown while the lock is active, and leaves the local System Proxy sentinel in place on quit so protected clients cannot silently fall back. The dialog states the limits for extensions, app-specific proxies, and software that ignores macOS networking settings.</li><li><strong>Selector Rows Share Comparable Measurements</strong> — A Selector benchmark now tests its selected automatic group with the Selector's own URL and status semantics, then publishes direct-leaf results to the shared store. The same underlying node no longer shows conflicting values merely because it appears in different policy groups; explicit automatic-group retests still use that group's configured URL and Mihomo's fresh `now`. (#219)</li><li><strong>Legacy WebKit Keeps Dark Themes Legible</strong> — The dashboard fallback now parses LCH and OKLCH colors, rejects transparent-black results from unsupported CSS variables, and derives visibly separate base surfaces instead of collapsing multiple dark layers to one black background. (#221)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 14 Sep 2026 12:59:57 +0000</pubDate>
+  <sparkle:version>1001011001</sparkle:version>
+  <sparkle:shortVersionString>1.1.11.1</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11.1/ClashFX.dmg"
+    sparkle:version="1001011001"
+    sparkle:shortVersionString="1.1.11.1"
+    sparkle:edSignature="H34ER4xAdH2vRuWCo2kz3oszyW5kOYnfXakKdhJphyoumPq8LemeTkFvmjxEGzqYeInqDSlM3DOBORNJz/rgCA=="
+    length="95234523"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.11</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.11</h2><ul><li><strong>Invalid TUN Descriptors No Longer Trigger a Log Storm</strong> — The embedded core now treats Darwin `bad file descriptor` and `socket operation on non-socket` read failures as closed TUN devices instead of retrying forever. ClashFX also recognizes either signature as an immediate Enhanced Mode recovery signal and rate-limits the errors independently of unrelated traffic logs, preventing the CPU, memory, and UI lockup seen during some post-reboot starts.</li></ul>
+  ]]></description>
+  <pubDate>Mon, 14 Sep 2026 12:31:59 +0000</pubDate>
+  <sparkle:version>1001011000</sparkle:version>
+  <sparkle:shortVersionString>1.1.11</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.11/ClashFX.dmg"
+    sparkle:version="1001011000"
+    sparkle:shortVersionString="1.1.11"
+    sparkle:edSignature="81dNkkTf6DIbNWD4fD++dUUi69iMh8C00ZkLlwzn9HYOlMFaxXPO/4Dw6wBdXoQvhZWsCUp/VU5tEQTgqQ0MCw=="
+    length="95196593"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.10.11 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.11 (Lab)</h2><ul><li><strong>Invalid TUN Descriptors No Longer Trigger a Log Storm</strong> — The embedded core now treats Darwin `bad file descriptor` and `socket operation on non-socket` read failures as closed TUN devices instead of retrying forever. ClashFX also recognizes either signature as an immediate Enhanced Mode recovery signal and rate-limits the errors independently of unrelated traffic logs, preventing the CPU, memory, and UI lockup seen during some post-reboot starts.</li></ul>
+  ]]></description>
+  <pubDate>Wed, 09 Sep 2026 03:08:24 +0000</pubDate>
+  <sparkle:version>1001010011</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.11</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.11/ClashFX.dmg"
+    sparkle:version="1001010011"
+    sparkle:shortVersionString="1.1.10.11"
+    sparkle:edSignature="O6DfBmh/CTN9XrWsKhx1HM7J1fVl6WJHWmazjFw3s9YzWR6CbLtKGI5c5KXnhEmL3vxCa4s7Zm1SaAO1PQRjDA=="
+    length="95235267"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.10.10 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.10 (Lab)</h2><ul><li><strong>Large Selector Benchmarks Finish Without a Retry Tail</strong> — Selector rows now use a bounded rolling pool of 8–12 requests, settle failures immediately instead of retrying them after the full pass, and reuse successful direct-leaf measurements from the selected automatic-group retest only when URL, timeout, expected-status semantics, and provider identity match. Mihomo's fresh `now` remains authoritative. (#147)</li><li><strong>Quitting Reliably Restores the Original System Proxy</strong> — Proxy transitions now serialize the complete asynchronous Helper operations, block new enable/recovery work while quitting, and avoid a second disable after restoration. ClashFX reads the settings back before exiting; a failed, timed-out, or mismatched restore keeps the original snapshot and cancels termination so the user can retry. (#147)</li><li><strong>Old Delay Results No Longer Make Usable Menus Look Disabled</strong> — The 30-minute stale state no longer fades whole node rows or automatic-group menus. Nodes remain normally legible and selectable while current, failed, and unavailable delay badges continue to describe benchmark state. Automatic-group child rows also retain the newest applicable global measurement. (#147, #219)</li><li><strong>Legacy WebKit Theme Colors Are Converted Instead of Turning Black</strong> — The dashboard compatibility layer now detects real `color-mix()` support with CSS variables and converts RGB, Lab, and OKLab fallback colors on older Safari/WebKit engines, preventing dark themes from losing their intended backgrounds and contrast. (#221)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 08 Sep 2026 13:43:28 +0000</pubDate>
+  <sparkle:version>1001010010</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.10</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.10/ClashFX.dmg"
+    sparkle:version="1001010010"
+    sparkle:shortVersionString="1.1.10.10"
+    sparkle:edSignature="u1c6PKV4nAmMZCMTjQSBEpPH2HkeEBrN+BFUUJMmRRdZdIzUMwgkggugkuzyD+52OMgMSFLb8Vcyk1odgY+xAQ=="
+    length="95249480"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.10.9 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.9 (Lab)</h2><ul><li><strong>Selected Automatic Results Arrive Before the Selector Retry Tail</strong> — A selected automatic group is now retested first with its own URL and expected status, then published from Mihomo's fresh `now` before leaf rows begin. Selector concurrency grows only after complete launch cohorts settle, is capped at twelve, and retries at most four failed targets, preventing a long failure tail from hiding the result users asked for. (#147)</li><li><strong>Automatic-Group Leaf Delays Are Visible and Generation-Safe</strong> — Automatic-group submenus now render URL-scoped delay badges for every direct candidate. Results carry group membership, benchmark URL, expected status, session identity, and expiry metadata, so provider changes and late callbacks cannot leave misleading group or leaf values behind. Mihomo's fresh `now` remains the only authority for the selected path. (#219)</li><li><strong>Dashboard Themes Persist and Legacy WebKit Renders Safely</strong> — Opening or upgrading the dashboard now clears only volatile caches and preserves local storage, cookies, and IndexedDB. A capability-gated compatibility layer replaces unsupported `color-mix()` transparency on older WebKit and supplies cached theme preview colors without forcing layout for every theme. (#221, #223)</li><li><strong>Global Delay Results Remain Visible in Node Lists</strong> — The top-level benchmark now retains each inline and provider leaf result with its test URL and session identity. Reopening a Selector keeps the newest applicable measurement even when that Selector uses a different configured test URL, while newer group-scoped evidence still wins. (#225)</li><li><strong>Runaway Enhanced-Mode Cores Are Captured and Recovered</strong> — ClashFX now measures the managed Mihomo process's CPU time by launch identity and PID. Sustained near-single-core usage first saves a thread sample, then rebuilds Enhanced Mode if the condition continues, with startup grace, active-traffic suppression, and a recovery cooldown to avoid reacting to legitimate or short-lived work. The diagnostic report records the watchdog state. (#226)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 07 Sep 2026 13:50:19 +0000</pubDate>
+  <sparkle:version>1001010009</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.9</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.9/ClashFX.dmg"
+    sparkle:version="1001010009"
+    sparkle:shortVersionString="1.1.10.9"
+    sparkle:edSignature="CqRJam5htFN65byF1weck4NBi+aI3s4OFqxqJs16XJMZpzK3H/1+BHnQ6GI5hm0MucVC4gkT2YQFJb9fWx6VBw=="
+    length="95203369"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.10.8 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.8 (Lab)</h2><ul><li><strong>Selected Automatic Results Arrive Before the Selector Retry Tail</strong> — A selected automatic group is now retested first with its own URL and expected status, then published from Mihomo's fresh `now` before leaf rows begin. Selector concurrency grows only after complete launch cohorts settle, is capped at twelve, and retries at most four failed targets, preventing a long failure tail from hiding the result users asked for. (#147)</li><li><strong>Automatic-Group Leaf Delays Are Visible and Generation-Safe</strong> — Automatic-group submenus now render URL-scoped delay badges for every direct candidate. Results carry group membership, benchmark URL, expected status, session identity, and expiry metadata, so provider changes and late callbacks cannot leave misleading group or leaf values behind. Mihomo's fresh `now` remains the only authority for the selected path. (#219)</li><li><strong>Dashboard Themes Persist and Legacy WebKit Renders Safely</strong> — Opening or upgrading the dashboard now clears only volatile caches and preserves local storage, cookies, and IndexedDB. A capability-gated compatibility layer replaces unsupported `color-mix()` transparency on older WebKit and supplies cached theme preview colors without forcing layout for every theme. (#221, #223)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 31 Aug 2026 13:24:56 +0000</pubDate>
+  <sparkle:version>1001010008</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.8</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.8/ClashFX.dmg"
+    sparkle:version="1001010008"
+    sparkle:shortVersionString="1.1.10.8"
+    sparkle:edSignature="A2LNNWe2htiewk/dbisHr5Yt4D5M2wkk0ZqYT+oyBZ1dopQAr9qSWwQMeI7RtSiI4OXcgg5TBNomVecIrqTvBw=="
+    length="95290220"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.10.7 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.7 (Lab)</h2><ul><li><strong>Large Selector Benchmarks Stream Results Without Connection Bursts</strong> — A continuously replenished, bounded request pool now publishes successful rows as soon as they finish instead of waiting for a whole batch or the complete test. Only first-pass failures receive one conservative retry, so large nested groups finish sooner and no longer appear frozen for roughly 50 seconds. (#147, #219)</li><li><strong>Delay Results Remain Useful Without Distorting Automatic Groups</strong> — Recent measurements survive menu reconstruction and remain visible after reopening the menu; older results fade before expiring. Automatic rows keep stable names, expose the final leaf separately, and use Mihomo's fresh `now` after an explicit group retest rather than inventing a UI-side selection. (#147, #219)</li><li><strong>Sleep/Wake Recovery Is Bounded, Generation-Safe, and Diagnosable</strong> — Delayed callbacks from an earlier wake can no longer keep the menu in a loading state or overwrite a newer recovery. Wake checks use bounded backoff, preserve failure evidence, and add a lightweight diagnostic breadcrumb/watchdog without taking destructive action in the background. (#147, #210)</li><li><strong>Restart and Settings State Stay Stable</strong> — Self-restart waits for the old process to exit before launching its replacement, preserves Enhanced Mode on helper failure, and gives the status item a persistent identity so its menu-bar position is retained. Configured proxy ports are no longer replaced by runtime auto-port values, automatic ports are explained in place, and Settings group titles no longer clip. (#219)</li><li><strong>Custom Shortcuts Distinguish Real Duplicates From Warnings</strong> — Shortcuts already assigned inside ClashFX remain blocked, while menu or common system conflicts such as Command-E are shown as warnings and can still be accepted. Function keys remain available without modifiers, and failed registrations roll back cleanly. (#218)</li></ul>
+  ]]></description>
+  <pubDate>Fri, 28 Aug 2026 04:02:08 +0000</pubDate>
+  <sparkle:version>1001010007</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.7</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.7/ClashFX.dmg"
+    sparkle:version="1001010007"
+    sparkle:shortVersionString="1.1.10.7"
+    sparkle:edSignature="TI5njETfiZHyuxBcMjZWoFKrWfkM1pO5O5oqAS2y7YBQrax85cnib3bzNsEhfC4zG9YSTbHA41aY27R0f8eVDQ=="
+    length="95217235"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.10.6 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.6 (Lab)</h2><ul><li><strong>Large Menus Stay Responsive While Opening or Switching Configurations</strong> — Proxy snapshots are decoded away from the main thread, overlapping refreshes are coalesced, and nested proxy rows are created only when their submenu opens. This removes repeated full-menu construction from the critical path while preserving current selections and live delay updates. (#216)</li><li><strong>Subscription Information No Longer Widens the Entire Menu</strong> — The top subscription row now bounds each line by rendered width and keeps the complete name and quota details in its tooltip. It remains enabled by default and can be hidden entirely from Settings → Appearance → Tray Menu → Show Subscription Information. (#215)</li><li><strong>Selector Benchmarks Avoid Ordered Connection Bursts</strong> — Visible rows keep their subscription order, while background requests are interleaved across protocol/provider cohorts and concurrency changes wait for each cohort to finish. First-pass failures receive one conservative retry before a single final result is shown, reducing transient bulk failures without flashing stale states. (#147)</li><li><strong>The Selected Automatic Group Re-evaluates After Leaf Tests</strong> — When a Selector currently uses an automatic group, that row stays in testing until the leaf pass completes. ClashFX then retests that group once with its configured settings and displays Mihomo's fresh final `now` path; other automatic rows remain measurement-only, and ClashFX never substitutes its own lowest-latency choice. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Wed, 26 Aug 2026 13:08:22 +0000</pubDate>
+  <sparkle:version>1001010006</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.6</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.6/ClashFX.dmg"
+    sparkle:version="1001010006"
+    sparkle:shortVersionString="1.1.10.6"
+    sparkle:edSignature="XgOxiL7W6EByCDfO0S1iivSLvh2/x/qfJzM2Vgh/ASzJsIEXqHlv9b7RalvddZA1/8/hj2pLBcFN082w+jYoDg=="
+    length="95199390"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.10.5 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.5 (Lab)</h2><ul><li><strong>Large Selector Benchmarks Adapt to Current Conditions</strong> — Selector tests now begin with eight requests, grow through twelve to a maximum of sixteen after healthy current-run results, and fall back toward four when failures cluster. On the supplied 49-target configuration, two isolated adaptive runs completed in 7.4–9.0 seconds with 37 successes, versus about 25–26 seconds and 35–36 successes at fixed concurrency four. A Clash Party-style 50-request burst was faster but reduced the number of sub-300 ms results from roughly 9–11 to 1. Test URLs, timeouts, returned delays, and color thresholds are unchanged. (#147)</li><li><strong>Manual Benchmark Default Matches ClashX Again</strong> — The default is again the ClashX-compatible `http://cp.cloudflare.com/generate_204`. Only the superseded built-in `https://cp.cloudflare.com/generate_204` value is corrected once; custom HTTP/HTTPS URLs remain unchanged, and a later explicit HTTPS choice stays valid. An isolated comparison produced green HTTP results while HTTPS produced none. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 24 Aug 2026 11:34:24 +0000</pubDate>
+  <sparkle:version>1001010005</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.5</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.5/ClashFX.dmg"
+    sparkle:version="1001010005"
+    sparkle:shortVersionString="1.1.10.5"
+    sparkle:edSignature="xPwIRGw/IlRd3RP0etKuNXtFX4AGbYkeqajS0AGK5R8cpl8SIAXkd27T8CIG2jS1RyczRawu6vI6XdQUeO1HAg=="
+    length="95175225"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.10.4 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.4 (Lab)</h2><ul><li><strong>Manual Benchmark Default Matches ClashX Again</strong> — The default is again the ClashX-compatible `http://cp.cloudflare.com/generate_204`. Only the superseded built-in `https://cp.cloudflare.com/generate_204` value is corrected once; custom HTTP/HTTPS URLs remain unchanged, and a later explicit HTTPS choice stays valid. An isolated comparison produced green HTTP results while HTTPS produced none. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Sun, 23 Aug 2026 15:43:01 +0000</pubDate>
+  <sparkle:version>1001010004</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.4</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.4/ClashFX.dmg"
+    sparkle:version="1001010004"
+    sparkle:shortVersionString="1.1.10.4"
+    sparkle:edSignature="wlJ6VMPPrhFIDziZp78+s2pUu4+e8BrRjyKciHEpmTum8DEKM/Mhk6r9/y86SfPyXjnA9cEZYbiXbXfgJPiwDw=="
+    length="95099723"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.10.3 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.3 (Lab)</h2><ul><li><strong>System Proxy Settings Restore Exactly After Disable or Quit</strong> — Before taking over, ClashFX now captures each existing network service's complete HTTP, HTTPS, SOCKS, PAC, exception, and partially enabled proxy state. Turning System Proxy off or quitting restores that exact state once; services created later stay untouched, and Helper failures are reported instead of being treated as success. (#147)</li><li><strong>Managed Configuration Updates Always Settle</strong> — Remote subscription updates now have bounded cancellation and one serialized completion path. A failed or stalled request can no longer leave the configuration row stuck at “Updating,” and late callbacks cannot overwrite a newer result. (#147)</li><li><strong>Benchmark Paths and Automatic Results Are Release-Verified</strong> — Selector benchmarks retain ordered visible rows while sharing equivalent path measurements; nested rows show the fresh selected leaf and result without re-evaluating automatic policy. Explicit automatic retests use the group's own settings and display Mihomo's fresh final path/result, while failures and cancellation settle without stale UI or repeated terminal refreshes. Automatic groups are not forced to choose the smallest displayed latency. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Sun, 23 Aug 2026 08:22:52 +0000</pubDate>
+  <sparkle:version>1001010003</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.3</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.3/ClashFX.dmg"
+    sparkle:version="1001010003"
+    sparkle:shortVersionString="1.1.10.3"
+    sparkle:edSignature="fpaidjcJ5/2tj+eF8+/cT+s9OIll8UyEJ/oVd2tn45tXhB6tnVgPt5zrc62RTqxokkUxZkRBm/ZmyAts560JDQ=="
+    length="95102421"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.10.2 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.2 (Lab)</h2><ul><li><strong>Manual Delay Results Stay With the Correct Strategy Row</strong> — Selector benchmarks now keep each settled result tied to its strategy row, resolved leaf, test URL, and benchmark session. Later provider health checks can no longer overwrite the displayed result, and automatic groups show history from their own effective test URL. (#147)</li><li><strong>Shortcuts No Longer Interfere With Other Apps by Default</strong> — Action shortcuts now work only while the ClashFX menu is open unless global shortcuts are explicitly enabled in Settings. “Open Menu” remains global, and global action handlers pause while the menu is open to prevent duplicate or delayed actions. (#209)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 17 Aug 2026 12:28:21 +0000</pubDate>
+  <sparkle:version>1001010002</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.2</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.2/ClashFX.dmg"
+    sparkle:version="1001010002"
+    sparkle:shortVersionString="1.1.10.2"
+    sparkle:edSignature="KvG5kZaD0j8+0YUPvJre/x7FXL7x7nDg2WouyaOqlkIJcRbTz3obtX2x1cvQMDPsSu9piaBBzWZVizSUl9SHBg=="
+    length="95130096"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.10.1 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10.1 (Lab)</h2><ul><li><strong>Custom Benchmark URLs Save Reliably</strong> — The proxy delay-test URL field now accepts HTTP and HTTPS addresses correctly and saves valid changes immediately, with an explicit Save button for confirmation. Clearing the field restores the default endpoint, while invalid input no longer overwrites the last working URL. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Thu, 13 Aug 2026 07:37:34 +0000</pubDate>
+  <sparkle:version>1001010001</sparkle:version>
+  <sparkle:shortVersionString>1.1.10.1</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10.1/ClashFX.dmg"
+    sparkle:version="1001010001"
+    sparkle:shortVersionString="1.1.10.1"
+    sparkle:edSignature="xg/4Ad3a2kagk3NhxOSB2v+a5HcK4XnI7BHkr3tzDNkE1UMscbOdP2quGkyaB7kOOt5N0Tgu+tVhNfLhnDPcBw=="
+    length="95079082"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.10</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.10</h2><ul><li><strong>Diagnostic Reports Protect Local Details</strong> — The complete diagnostic report now removes macOS home paths and usernames, local IP and MAC addresses, hostnames, credentials, and other machine-specific details before it is copied for sharing. (#147)</li><li><strong>Log Times and the Latest Log Are Easier to Find</strong> — Log lines and filenames now use local time with an explicit UTC offset. “Open Log Folder” also selects the newest log directly instead of relying on Finder's current sort order. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Thu, 13 Aug 2026 07:08:29 +0000</pubDate>
+  <sparkle:version>1001010000</sparkle:version>
+  <sparkle:shortVersionString>1.1.10</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.10/ClashFX.dmg"
+    sparkle:version="1001010000"
+    sparkle:shortVersionString="1.1.10"
+    sparkle:edSignature="Q8NfK6Eht+pW+R51lGFuOUchYl31YcZMXyRJ/XoSRBQp/Z9Ybb0fnLegivRcaUkS0rV+rQ5GBzFqxPCyjvJyBA=="
+    length="95073680"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.9.9 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.9 (Lab)</h2><ul><li><strong>Diagnostic Reports Protect Local Details</strong> — The complete diagnostic report now removes macOS home paths and usernames, local IP and MAC addresses, hostnames, credentials, and other machine-specific details before it is copied for sharing. (#147)</li><li><strong>Log Times and the Latest Log Are Easier to Find</strong> — Log lines and filenames now use local time with an explicit UTC offset. “Open Log Folder” also selects the newest log directly instead of relying on Finder's current sort order. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Wed, 12 Aug 2026 11:28:07 +0000</pubDate>
+  <sparkle:version>1001009009</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.9</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.9/ClashFX.dmg"
+    sparkle:version="1001009009"
+    sparkle:shortVersionString="1.1.9.9"
+    sparkle:edSignature="N+uatxGsr0GQD1ZC1t5nvKh6dariDliNIHqWtiHWpToyLtfZPfCZFGLCSbaMWcoHlSt/Xxl2q+M0dyqN5vWCAg=="
+    length="95075544"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.9.8 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.8 (Lab)</h2><ul><li><strong>Large Strategy-Group Benchmarks Stay Responsive</strong> — Large Selector menus now use more conservative benchmark concurrency so the local connection pool and test endpoint are not flooded, reducing uniformly inflated delays and widespread failures. Nested automatic rows keep stable names, long labels truncate cleanly, and delay badges remain readable without resizing the open menu. (#147)</li><li><strong>System Proxy Recovers After a Cold Startup</strong> — After a reboot or unexpected shutdown, ClashFX now waits for the configuration, core, privileged helper, and network to become ready before verifying and restoring the macOS System Proxy. Recovery is bounded and stops immediately if the user disables System Proxy or switches to Enhanced Mode. (#147)</li><li><strong>Delay Test Menu Stays Open on the First Click</strong> — Starting a delay test no longer disables the active custom menu item, which could make AppKit close the proxy menu before showing progress. Repeat clicks are still rejected by the active benchmark session.</li><li><strong>Never-Matched Rules Reliably Hide Epoch Times</strong> — Rule timestamps are now normalized in ClashFX's native Dashboard response layer, including cached snapshots, so release-time Dashboard replacement can no longer bring back “57 years ago.” (#147)</li><li><strong>Selected-Group Delay Tests Avoid Duplicate Work</strong> — When a selector contains a URLTest group and the same leaf nodes, ClashFX now tests that automatic group once with its configured URL and skips individually retesting the nodes it already covered. Large groups finish sooner without bringing back provider-wide health checks. (#147)</li><li><strong>Automatic Groups Re-evaluate After Complete Results</strong> — A URLTest started from the controller now clears any choice cached while candidates were still responding, then applies the configured tolerance to the complete result set. Early responses can no longer remain selected after slower candidates finish. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 11 Aug 2026 10:11:43 +0000</pubDate>
+  <sparkle:version>1001009008</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.8</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.8/ClashFX.dmg"
+    sparkle:version="1001009008"
+    sparkle:shortVersionString="1.1.9.8"
+    sparkle:edSignature="7XIXIEPF4xO5TKPzRpz+SVeobfgiIjF2QBHG2muY+cyJysqck27Oep5Hsmm0UMGu1Vwu0aSo/pDbblee0kZaAw=="
+    length="95130478"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.9.7 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.7 (Lab)</h2><ul><li><strong>Delay Test Menu Stays Open on the First Click</strong> — Starting a delay test no longer disables the active custom menu item, which could make AppKit close the proxy menu before showing progress. Repeat clicks are still rejected by the active benchmark session.</li><li><strong>Never-Matched Rules Reliably Hide Epoch Times</strong> — Rule timestamps are now normalized in ClashFX's native Dashboard response layer, including cached snapshots, so release-time Dashboard replacement can no longer bring back “57 years ago.” (#147)</li><li><strong>Selected-Group Delay Tests Avoid Duplicate Work</strong> — When a selector contains a URLTest group and the same leaf nodes, ClashFX now tests that automatic group once with its configured URL and skips individually retesting the nodes it already covered. Large groups finish sooner without bringing back provider-wide health checks. (#147)</li><li><strong>Automatic Groups Re-evaluate After Complete Results</strong> — A URLTest started from the controller now clears any choice cached while candidates were still responding, then applies the configured tolerance to the complete result set. Early responses can no longer remain selected after slower candidates finish. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 11 Aug 2026 07:18:49 +0000</pubDate>
+  <sparkle:version>1001009007</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.7</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.7/ClashFX.dmg"
+    sparkle:version="1001009007"
+    sparkle:shortVersionString="1.1.9.7"
+    sparkle:edSignature="7mHmpNnmaPDPRcr3KrKk25xJWQ9nx8esSeK9hG4xhRrGjN8efhiUew/CJhwATbBaMAAFB/cjyqRdtFK7R9X5DA=="
+    length="95135672"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.9.6 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.6 (Lab)</h2><ul><li><strong>Selected-Group Delay Tests Avoid Duplicate Work</strong> — When a selector contains a URLTest group and the same leaf nodes, ClashFX now tests that automatic group once with its configured URL and skips individually retesting the nodes it already covered. Large groups finish sooner without bringing back provider-wide health checks. (#147)</li><li><strong>Automatic Groups Re-evaluate After Complete Results</strong> — A URLTest started from the controller now clears any choice cached while candidates were still responding, then applies the configured tolerance to the complete result set. Early responses can no longer remain selected after slower candidates finish. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 10 Aug 2026 08:16:51 +0000</pubDate>
+  <sparkle:version>1001009006</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.6</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.6/ClashFX.dmg"
+    sparkle:version="1001009006"
+    sparkle:shortVersionString="1.1.9.6"
+    sparkle:edSignature="MAxgwZcBHl9YMMwX82e5cwMqH/xVa1byP/1l7KFyvk0Qw0cXtpkhe285fDSL9LCaiV9tkmmLujDQYVP4qPLfBg=="
+    length="95005730"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.9.5 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.5 (Lab)</h2><ul><li><strong>Never-Matched Rules No Longer Show “57 Years Ago”</strong> — The bundled Dashboard now removes epoch timestamps from rules with no hits or misses, so only real recent-match times are displayed. (#147)</li><li><strong>Delay Tests Stay Within the Selected Group</strong> — Provider-backed nodes are now tested individually through their provider instead of benchmarking every node in the provider. Large groups complete faster, avoid unrelated failures, and keep the existing concurrency limit. (#147)</li><li><strong>macOS 10.14 Launch Compatibility Is Restored</strong> — Removed the incompatible AppCenter Analytics and Crashes binaries that referenced Objective-C runtime symbols unavailable on Mojave, while keeping ClashFX's macOS 10.14 deployment target. (#197)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 10 Aug 2026 06:56:04 +0000</pubDate>
+  <sparkle:version>1001009005</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.5</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.5/ClashFX.dmg"
+    sparkle:version="1001009005"
+    sparkle:shortVersionString="1.1.9.5"
+    sparkle:edSignature="H1XdHadWswLHb377O4x4eXC6XZ/YJekNjukRDDlwbOPNlguF7i3ZG7JrffMV/HVVgNMs0ugjr029d8dH6rx7Bg=="
+    length="95086112"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.9.4 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.4 (Lab)</h2><ul><li><strong>Enhanced Mode Now Detects Silent Data-Plane Failures</strong> — Runtime monitoring now verifies the core's DIRECT outbound path and DNS resolution in addition to the controller and TUN interface. Three confirmed core-only failures trigger a bounded rebuild, while unavailable system connectivity is treated as inconclusive to avoid restart loops. (#147)</li><li><strong>Recovery Captures Evidence Before Restarting the Core</strong> — Every external-core launch now has a unique capped log, launch and termination metadata, and an on-demand process sample. Automatic recovery records this evidence before rebuilding, and a failed startup can restart the Helper host once instead of leaving a stale external core behind. (#147)</li><li><strong>Proxy and Rules Views Survive Brief Core Interruptions</strong> — The menu and Dashboard preserve their last valid proxy/rules snapshot when the local controller is temporarily unavailable. The Dashboard clearly marks cached rules as stale instead of showing an empty page, so a recovery no longer looks like the user's rules disappeared. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Wed, 29 Jul 2026 11:19:43 +0000</pubDate>
+  <sparkle:version>1001009004</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.4</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.4/ClashFX.dmg"
+    sparkle:version="1001009004"
+    sparkle:shortVersionString="1.1.9.4"
+    sparkle:edSignature="zB4KriTZr8AnJ5ebpyvCBo6iW/LFCnSCWEWOkXr5ICB087PLn5Hj/gA2DuTk20k79efeD1WkzJU61yrXTYzPBQ=="
+    length="95637606"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.9.3 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.3 (Lab)</h2><ul><li><strong>Large Delay Tests No Longer Trigger Enhanced Mode Restarts</strong> — Manual benchmarks now share a bounded eight-request queue, cancel cleanly before recovery, and use control-plane health thresholds that tolerate short load spikes. Testing a large proxy group can no longer starve the controller and make ClashFX rebuild a healthy core. The default benchmark endpoint also uses HTTPS, with existing default settings migrated automatically.</li><li><strong>Helper Upgrades No Longer Loop or Race App Startup</strong> — ClashFX now compares the bundled and installed Helper reliably, gives privileged operations enough time to finish, validates connecting clients, and keeps the Helper alive briefly while the app reconnects. Startup waits for Helper cleanup before restoring Enhanced Mode, preventing repeated installer prompts and transient “Helper unavailable” failures.</li><li><strong>Network Restoration Cannot Freeze Relaunch</strong> — DNS restoration and cache flushing now have strict watchdogs, so a slow system command cannot stall ClashFX for minutes. If an older restore finishes late, the active proxy DNS settings are reapplied instead of being overwritten.</li></ul>
+  ]]></description>
+  <pubDate>Wed, 29 Jul 2026 06:33:22 +0000</pubDate>
+  <sparkle:version>1001009003</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.3</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.3/ClashFX.dmg"
+    sparkle:version="1001009003"
+    sparkle:shortVersionString="1.1.9.3"
+    sparkle:edSignature="dYaiDZuFHDBFQ5NyuzNgJgJl47Z+CO6rt1QU4AFP0WKWMoQsUFS1X2QHafzM3aJhEapyQvaMJOYS81Ti6a+yCA=="
+    length="95581272"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.9.2 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.2 (Lab)</h2><ul><li><strong>Enhanced Mode Startup Errors Are Now Actionable</strong> — Failed Enhanced Mode toggles now show a prominent error dialog even when reduced notifications are enabled. Invalid TUN route-exclude entries are identified directly, with guidance to separate entries correctly and a shortcut to open Settings. (#190)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 28 Jul 2026 08:06:41 +0000</pubDate>
+  <sparkle:version>1001009002</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.2</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.2/ClashFX.dmg"
+    sparkle:version="1001009002"
+    sparkle:shortVersionString="1.1.9.2"
+    sparkle:edSignature="jJWPRC1D5rRU/VRTAznKtKo4+iJj/Jraij+4YLYht9FefoSTKaohvgB8hj/Q5bPbNautkneTCsoa/EI6Qi4/Dw=="
+    length="95583075"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.9.1 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9.1 (Lab)</h2><ul><li><strong>Automatic Groups Re-evaluate After Manual Delay Tests</strong> — Completing a manual delay benchmark now triggers each affected `url-test` group to test its candidates again with the group's own URL and expected status. Stale selections are refreshed while Mihomo's configured `tolerance` continues to prevent unnecessary switching from small latency changes. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 27 Jul 2026 09:07:04 +0000</pubDate>
+  <sparkle:version>1001009001</sparkle:version>
+  <sparkle:shortVersionString>1.1.9.1</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9.1/ClashFX.dmg"
+    sparkle:version="1001009001"
+    sparkle:shortVersionString="1.1.9.1"
+    sparkle:edSignature="4jK4pymn93NnUGicfhycr7Knii8NsUgwQ9Sf1yIf7WY3R1ayAnL/k3XnHOw56osflbJdUh9lxL4FzNcftRvyBw=="
+    length="95553044"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.9</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.9</h2><ul><li><strong>System Proxy Bypass Changes Apply Immediately</strong> — Editing the bypass list now reapplies the active macOS System Proxy settings and reloads the standard-mode runtime rules without requiring a proxy toggle or app restart. The settings copy also clarifies that Enhanced Mode bypasses belong in Profile Mixin. (#182)</li><li><strong>TUN Interface Error Storms Recover Automatically</strong> — Repeated interface auto-detection failures are grouped and rate-limited before file logging, and a sustained error storm now triggers an Enhanced Mode rebuild instead of consuming CPU and growing logs indefinitely. (#183)</li><li><strong>Dashboard Version Indicators No Longer Suggest Unsupported Updates</strong> — ClashFX now removes the upstream update dots, disables the bundled Dashboard's version actions, and explains that Dashboard and core updates are managed by ClashFX releases. (#184)</li><li><strong>Outbound Mode No Longer Changes Unexpectedly</strong> — Removed the default global `⌥D`, `⌥R`, and `⌥G` bindings that could switch ClashFX from other apps. Upgrades clear only bindings that still match those legacy defaults, while preserving other custom shortcuts. (#179)</li><li><strong>The Last Mode Choice Now Wins Reliably</strong> — Outbound-mode changes are serialized, persisted only after the core accepts them, and verified against the core's actual mode. Config reloads and stale state reads can no longer overwrite the user's latest choice, and logs now record each change source and result. (#179)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 27 Jul 2026 07:53:58 +0000</pubDate>
+  <sparkle:version>1001009000</sparkle:version>
+  <sparkle:shortVersionString>1.1.9</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.9/ClashFX.dmg"
+    sparkle:version="1001009000"
+    sparkle:shortVersionString="1.1.9"
+    sparkle:edSignature="ZxhpEZlJm9TKGbySIJOtyq2McIjLx1dJ2PrD5zMfDUH9XKpbSJ05G9bO3rRR3vZ6cETsJp3eIZmKSLmOO1XZBA=="
+    length="95541810"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.8.5 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.8.5 (Lab)</h2><ul><li><strong>System Proxy Bypass Changes Apply Immediately</strong> — Editing the bypass list now reapplies the active macOS System Proxy settings and reloads the standard-mode runtime rules without requiring a proxy toggle or app restart. The settings copy also clarifies that Enhanced Mode bypasses belong in Profile Mixin. (#182)</li><li><strong>TUN Interface Error Storms Recover Automatically</strong> — Repeated interface auto-detection failures are grouped and rate-limited before file logging, and a sustained error storm now triggers an Enhanced Mode rebuild instead of consuming CPU and growing logs indefinitely. (#183)</li><li><strong>Dashboard Version Indicators No Longer Suggest Unsupported Updates</strong> — ClashFX now removes the upstream update dots, disables the bundled Dashboard's version actions, and explains that Dashboard and core updates are managed by ClashFX releases. (#184)</li><li><strong>Outbound Mode No Longer Changes Unexpectedly</strong> — Removed the default global `⌥D`, `⌥R`, and `⌥G` bindings that could switch ClashFX from other apps. Upgrades clear only bindings that still match those legacy defaults, while preserving other custom shortcuts. (#179)</li><li><strong>The Last Mode Choice Now Wins Reliably</strong> — Outbound-mode changes are serialized, persisted only after the core accepts them, and verified against the core's actual mode. Config reloads and stale state reads can no longer overwrite the user's latest choice, and logs now record each change source and result. (#179)</li></ul>
+  ]]></description>
+  <pubDate>Fri, 24 Jul 2026 04:44:42 +0000</pubDate>
+  <sparkle:version>1001008005</sparkle:version>
+  <sparkle:shortVersionString>1.1.8.5</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.8.5/ClashFX.dmg"
+    sparkle:version="1001008005"
+    sparkle:shortVersionString="1.1.8.5"
+    sparkle:edSignature="LiQRYT2q6lUYOVYFXA9vjmCon+3FuIHzYCla4KamoYxzlDAdCFtk9XkkYDP9enu+ssnjirRwpJDbkL3hGOWnDA=="
+    length="95484449"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.8.4 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.8.4 (Lab)</h2><ul><li><strong>Outbound Mode No Longer Changes Unexpectedly</strong> — Removed the default global `⌥D`, `⌥R`, and `⌥G` bindings that could switch ClashFX from other apps. Upgrades clear only bindings that still match those legacy defaults, while preserving other custom shortcuts. (#179)</li><li><strong>The Last Mode Choice Now Wins Reliably</strong> — Outbound-mode changes are serialized, persisted only after the core accepts them, and verified against the core's actual mode. Config reloads and stale state reads can no longer overwrite the user's latest choice, and logs now record each change source and result. (#179)</li></ul>
+  ]]></description>
+  <pubDate>Thu, 23 Jul 2026 05:18:42 +0000</pubDate>
+  <sparkle:version>1001008004</sparkle:version>
+  <sparkle:shortVersionString>1.1.8.4</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.8.4/ClashFX.dmg"
+    sparkle:version="1001008004"
+    sparkle:shortVersionString="1.1.8.4"
+    sparkle:edSignature="e1cImOjIB0F5MPxwQIBk5g9S7KX8oxxGEfJFLpMXPNddbebiy6aPQI2x06yyq5/CoOXF6x8Hhjok/sfVHlguAg=="
+    length="95538995"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.8.3 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.8.3 (Lab)</h2><ul><li><strong>Enhanced Mode Recovers From a Closed TUN Read Loop</strong> — The bundled core now treats macOS `ENOTSOCK` as a closed connection, while ClashFX detects the fatal TUN read error and rebuilds Enhanced Mode instead of leaving traffic disconnected. (#147)</li><li><strong>Core Error Floods No Longer Exhaust Resources</strong> — Repeated core messages are rate-limited in the app, and the privileged helper caps the core log at 4 MB so a broken read loop cannot drive unbounded CPU, memory, or disk usage. (#147)</li><li><strong>Helper Upgrades and Reconnects Are More Reliable</strong> — ClashFX now reuses and safely resets its XPC connection, waits for helper readiness before cleaning stale cores, and replaces an outdated running helper before restoring Enhanced Mode. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Wed, 22 Jul 2026 16:09:26 +0000</pubDate>
+  <sparkle:version>1001008003</sparkle:version>
+  <sparkle:shortVersionString>1.1.8.3</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.8.3/ClashFX.dmg"
+    sparkle:version="1001008003"
+    sparkle:shortVersionString="1.1.8.3"
+    sparkle:edSignature="P5vG0rk2eVs3DsXk0Ewam7y6bxnTarPZoZeHhWDMD/LWBwNmoAJbgKnTNITc60wIJLmyG19uPcvP5QEgdVAlAg=="
+    length="95507096"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.8.2 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.8.2 (Lab)</h2><ul><li><strong>Delay Benchmarks Avoid Duplicate Work</strong> — Manual delay tests now benchmark each actual leaf proxy once, use provider-specific checks for provider nodes, and cap concurrency to avoid nested policy groups producing duplicate requests and unstable first-run results. (#147)</li><li><strong>Connection Details Can Copy the Destination Directly</strong> — A new copy button beside the destination copies the hostname when available, or the destination IP otherwise, without the port number so it can be pasted directly into custom rules. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 21 Jul 2026 14:26:54 +0000</pubDate>
+  <sparkle:version>1001008002</sparkle:version>
+  <sparkle:shortVersionString>1.1.8.2</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.8.2/ClashFX.dmg"
+    sparkle:version="1001008002"
+    sparkle:shortVersionString="1.1.8.2"
+    sparkle:edSignature="g87egQzXKnaHMNaTFUZWc3NgfITHqDs8xKeGYbRBmMwohRSKDo7yYQQrO10vv7qPy66tBHJBQLZzWnchZAqEAA=="
+    length="95523953"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.8.1 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.8.1 (Lab)</h2><ul><li><strong>Enhanced Mode Recovers Its TUN Data Path After Wake</strong> — Wake and network-change recovery now validates both the mihomo API and the active TUN interface. If the control API is alive but TUN has disappeared or reports disabled, ClashFX stops the stale external core and rebuilds Enhanced Mode instead of leaving the menu in a false-on state. (#142, #147)</li><li><strong>A Stuck Core No Longer Blocks Restart</strong> — The privileged helper now gives mihomo a short graceful-shutdown window, then force-terminates it when necessary so Enhanced Mode recovery and ClashFX restart cannot wait forever on an unresponsive process. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Fri, 17 Jul 2026 09:13:27 +0000</pubDate>
+  <sparkle:version>1001008001</sparkle:version>
+  <sparkle:shortVersionString>1.1.8.1</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.8.1/ClashFX.dmg"
+    sparkle:version="1001008001"
+    sparkle:shortVersionString="1.1.8.1"
+    sparkle:edSignature="QkBBpdQhTM5E6/4vzf8jM6Uoqr40Asyi6jw2IovPRiNyZQWVPOe6P/r10FOXwzR6/qDeuEwq+5opsVHsEWg7CA=="
+    length="95480068"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.8</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.8</h2><ul><li><strong>Global Shortcuts No Longer Override Standard macOS Commands</strong> — Removed the default global bindings for Command-S, Command-D, Command-L, and Shift-Command-D. Existing bindings that still match those former defaults are cleared once during upgrade, while other custom shortcuts remain unchanged. (#169)</li></ul>
+  ]]></description>
+  <pubDate>Tue, 14 Jul 2026 04:45:29 +0000</pubDate>
+  <sparkle:version>1001008000</sparkle:version>
+  <sparkle:shortVersionString>1.1.8</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.8/ClashFX.dmg"
+    sparkle:version="1001008000"
+    sparkle:shortVersionString="1.1.8"
+    sparkle:edSignature="BLMG547ptZsISlb4ArrRCyQ7d8wThkzNA1hp0vaKGpq4DPu+AJGCPnXw5WSIwAspJuXPPfGOtrDqWsBUZkrYAg=="
+    length="95454291"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.7.3 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.7.3 (Lab)</h2><ul><li><strong>Managed Config Table Fits Its Contents</strong> — The managed-config window now reserves enough room for the update-time column on its first display, without requiring a manual window resize. (#147)</li><li><strong>Configurable Delay-Test Shortcut</strong> — Delay tests can now be assigned a global shortcut in Settings. It has no default binding, so it will not conflict with existing shortcuts. (#147)</li><li><strong>iCloud Storage Fails Safely</strong> — Enabling iCloud-backed config storage now warns and restores the local-storage setting when iCloud is unavailable. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Mon, 13 Jul 2026 08:15:56 +0000</pubDate>
+  <sparkle:version>1001007003</sparkle:version>
+  <sparkle:shortVersionString>1.1.7.3</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.7.3/ClashFX.dmg"
+    sparkle:version="1001007003"
+    sparkle:shortVersionString="1.1.7.3"
+    sparkle:edSignature="AYaPM5zAo14x1AJ1ikeRVpJfjJanrP5jrl0RtrMcqHT+Xz9e2MrPoKHoPFsXUN3O2vrgDiAcieqlBYLBwDh1Dw=="
+    length="95435307"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
+  <title>Version 1.1.7.2 (Lab)</title>
+  <description><![CDATA[
+    <h2>ClashFX v1.1.7.2 (Lab)</h2><ul><li><strong>Delay Tests Stay Manual</strong> — Removed the startup retry for delay tests. Benchmarks now run only when explicitly started by the user, avoiding extra network requests while ClashFX and its configuration are still starting. (#147)</li><li><strong>Config Menu Is Clearer</strong> — Renamed Profile Mixin to Config Patch (Profile Mixin), grouped it with Config Editor and current-config actions, and renamed external-resource updates to clarify that they refresh rule and proxy providers rather than managed configurations. (#147)</li></ul>
+  ]]></description>
+  <pubDate>Sat, 11 Jul 2026 08:30:22 +0000</pubDate>
+  <sparkle:version>1001007002</sparkle:version>
+  <sparkle:shortVersionString>1.1.7.2</sparkle:shortVersionString>
+            <sparkle:channel>lab</sparkle:channel>
+          <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+  <enclosure
+    url="https://github.com/Clash-FX/ClashFX/releases/download/1.1.7.2/ClashFX.dmg"
+    sparkle:version="1001007002"
+    sparkle:shortVersionString="1.1.7.2"
+    sparkle:edSignature="xRb8pTNF/8g8hSNyp5+eE8IFaoOq/LeaEOu5OpGBrMl/c4uAZgGPE9d4aQrnf5e2dih4kTupLIRbKjbi062mDA=="
+    length="95601355"
+    type="application/x-apple-diskimage"
+  />
+</item>
+    <item>
   <title>Version 1.1.7.1 (Lab)</title>
   <description><![CDATA[
     <h2>ClashFX v1.1.7.1 (Lab)</h2><ul><li><strong>Config Selection Follows Local and iCloud Storage</strong> — Local and iCloud storage now remember their selected configurations independently. Switching storage restores the target location's previous selection, or chooses a non-default configuration when no selection has been saved yet. (#129)</li><li><strong>Delay Results Return After Restart</strong> — After a manual delay benchmark, ClashFX remembers the active configuration and test parameters, then silently repeats the benchmark once after the next matching startup. (#147)</li><li><strong>Proxy Speed Is Clearly Labeled</strong> — The menu-bar indicator now identifies itself as ClashFX proxy traffic and explains that it does not represent total system network speed. (#147)</li><li><strong>Optional Dock Icon Hiding</strong> — General settings now includes a disabled-by-default "Hide Dock Icon" switch. When enabled, ClashFX remains available from the menu bar without appearing in the Dock. (#147)</li></ul>

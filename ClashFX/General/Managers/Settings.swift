@@ -10,6 +10,21 @@ import Foundation
 import Network
 
 enum Settings {
+    @UserDefault(
+        "actionShortcutScope",
+        defaultValue: ShortcutRegistrationPolicy.defaultActionScope.rawValue
+    )
+    private static var actionShortcutScopeRawValue: Int
+
+    static var actionShortcutScope: ShortcutScope {
+        get {
+            ShortcutRegistrationPolicy.actionScope(from: actionShortcutScopeRawValue)
+        }
+        set {
+            actionShortcutScopeRawValue = newValue.rawValue
+        }
+    }
+
     /// Must be MaxMind MMDB format (verifyGEOIPDataBase uses oschwald/geoip2-golang, which rejects mihomo's proprietary .metadb).
     static let defaultMmdbDownloadUrl = "https://github.com/MetaCubeX/meta-rules-dat/releases/latest/download/country.mmdb"
     @UserDefault("mmdbDownloadUrl", defaultValue: defaultMmdbDownloadUrl)
@@ -175,6 +190,21 @@ enum Settings {
     @UserDefault("disableMenubarNotice", defaultValue: false)
     static var disableMenubarNotice: Bool
 
+    @UserDefault("menuBarSpeedAlignment", defaultValue: MenuBarSpeedAlignment.right.rawValue)
+    private static var menuBarSpeedAlignmentRawValue: Int
+
+    static var menuBarSpeedAlignment: MenuBarSpeedAlignment {
+        return MenuBarSpeedAlignment.persisted(rawValue: menuBarSpeedAlignmentRawValue)
+    }
+
+    static let menuBarSpeedAlignmentDidChange = Notification.Name("ClashFX.menuBarSpeedAlignmentDidChange")
+
+    static func setMenuBarSpeedAlignment(_ alignment: MenuBarSpeedAlignment) {
+        guard alignment != menuBarSpeedAlignment else { return }
+        menuBarSpeedAlignmentRawValue = alignment.rawValue
+        NotificationCenter.default.post(name: menuBarSpeedAlignmentDidChange, object: alignment)
+    }
+
     @UserDefault("proxyPort", defaultValue: 0)
     static var proxyPort: Int
 
@@ -207,7 +237,7 @@ enum Settings {
 
     static let disableShowCurrentProxyInMenu = !AppDelegate.isAboveMacOS14
 
-    static let defaultBenchmarkUrl = "http://cp.cloudflare.com/generate_204"
+    static let defaultBenchmarkUrl = BenchmarkURLSettings.defaultURL
     @UserDefault("benchMarkUrl", defaultValue: defaultBenchmarkUrl)
     static var benchMarkUrl: String {
         didSet {
@@ -215,6 +245,22 @@ enum Settings {
                 benchMarkUrl = defaultBenchmarkUrl
             }
         }
+    }
+
+    @UserDefault("benchmarkURLCompatibilityRestorationCompleted", defaultValue: false)
+    private static var benchmarkURLCompatibilityRestorationCompleted: Bool
+
+    static func restoreSupersededBenchmarkURLIfNeeded() {
+        guard !benchmarkURLCompatibilityRestorationCompleted else { return }
+
+        if BenchmarkURLSettings.shouldRestoreSupersededBuiltInDefault(
+            savedURL: benchMarkUrl,
+            restorationCompleted: benchmarkURLCompatibilityRestorationCompleted
+        ) {
+            benchMarkUrl = defaultBenchmarkUrl
+        }
+
+        benchmarkURLCompatibilityRestorationCompleted = true
     }
 
     @UserDefault("hideDockIcon", defaultValue: false)
@@ -231,6 +277,12 @@ enum Settings {
 
     @UserDefault("bypassChineseApps", defaultValue: false)
     static var bypassChineseApps: Bool
+
+    @UserDefault("claudeProxyLockEnabled", defaultValue: false)
+    static var claudeProxyLockEnabled: Bool
+
+    @UserDefault("claudeProxyLockTarget", defaultValue: "")
+    static var claudeProxyLockTarget: String
 
     @UserDefault("appLanguage", defaultValue: "")
     static var appLanguage: String
@@ -256,6 +308,9 @@ enum Settings {
     }
 
     // MARK: - Tray Menu Visibility
+
+    @UserDefault("trayMenuShowSubscriptionInfo", defaultValue: true)
+    static var trayMenuShowSubscriptionInfo: Bool
 
     @UserDefault("trayMenuShowProxyMode", defaultValue: true)
     static var trayMenuShowProxyMode: Bool

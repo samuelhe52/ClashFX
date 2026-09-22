@@ -25,6 +25,7 @@ final class StatusItemView: StatusItemViewProtocol {
     }
 
     private weak var button: NSStatusBarButton?
+    private var speedAlignmentObserver: NSObjectProtocol?
 
     private var up = 0
     private var down = 0
@@ -41,8 +42,21 @@ final class StatusItemView: StatusItemViewProtocol {
             Logger.log("button = nil")
             AppDelegate.shared.openConfigFolder(view)
         }
+        view.speedAlignmentObserver = NotificationCenter.default.addObserver(
+            forName: Settings.menuBarSpeedAlignmentDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak view] _ in
+            view?.renderImage()
+        }
         view.renderImage()
         return view
+    }
+
+    deinit {
+        if let speedAlignmentObserver {
+            NotificationCenter.default.removeObserver(speedAlignmentObserver)
+        }
     }
 
     var preferredWidth: CGFloat {
@@ -92,6 +106,7 @@ final class StatusItemView: StatusItemViewProtocol {
         let enableProxy = enableProxy
         let upSpeed = SpeedUtils.getMenuBarSpeedString(for: up)
         let downSpeed = SpeedUtils.getMenuBarSpeedString(for: down)
+        let speedAlignment = Settings.menuBarSpeedAlignment
         let icon = StatusItemTool.menuImage.copy() as? NSImage
         icon?.isTemplate = false
 
@@ -100,7 +115,12 @@ final class StatusItemView: StatusItemViewProtocol {
             let drawContents = {
                 Self.drawIcon(icon, enableProxy: enableProxy)
                 if showSpeed {
-                    Self.drawSpeed(up: upSpeed, down: downSpeed, width: width)
+                    Self.drawSpeed(
+                        up: upSpeed,
+                        down: downSpeed,
+                        width: width,
+                        alignment: speedAlignment
+                    )
                 }
             }
             if #available(macOS 11, *) {
@@ -150,7 +170,12 @@ final class StatusItemView: StatusItemViewProtocol {
         iconRect.fill(using: .sourceAtop)
     }
 
-    private static func drawSpeed(up: String, down: String, width: CGFloat) {
+    private static func drawSpeed(
+        up: String,
+        down: String,
+        width: CGFloat,
+        alignment: MenuBarSpeedAlignment
+    ) {
         let attributes: [NSAttributedString.Key: Any] = [
             .font: StatusItemTool.speedFont,
             .foregroundColor: NSColor.labelColor
@@ -158,15 +183,23 @@ final class StatusItemView: StatusItemViewProtocol {
         let upSize = (up as NSString).size(withAttributes: attributes)
         let downSize = (down as NSString).size(withAttributes: attributes)
         let trailingX = width - Layout.trailingPadding
+        let textAreaOriginX = Layout.iconOnlyWidth
+        let textAreaWidth = max(0, trailingX - textAreaOriginX)
 
         let upRect = CGRect(
-            x: trailingX - upSize.width,
+            x: textAreaOriginX + alignment.textOriginX(
+                containerWidth: textAreaWidth,
+                textWidth: upSize.width
+            ),
             y: Layout.height - Layout.labelHeight - 1,
             width: upSize.width,
             height: Layout.labelHeight
         )
         let downRect = CGRect(
-            x: trailingX - downSize.width,
+            x: textAreaOriginX + alignment.textOriginX(
+                containerWidth: textAreaWidth,
+                textWidth: downSize.width
+            ),
             y: 1,
             width: downSize.width,
             height: Layout.labelHeight

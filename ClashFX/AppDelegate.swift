@@ -13,15 +13,54 @@ import KeyboardShortcuts
 import LetsMove
 import RxCocoa
 import RxSwift
+import SystemConfiguration
 import Yams
 
 let statusItemLengthWithSpeed: CGFloat = 65
+
+enum OutboundModeChangeSource: String {
+    case menu
+    case globalShortcut = "global-shortcut"
+    case configReload = "config-reload"
+}
 
 @main
 class AppDelegate: NSObject, NSApplicationDelegate {
     private enum EnhancedModeLaunchPreparation {
         case success(port: String, secret: String)
         case failure(String)
+    }
+
+    private enum WakeCoreHealth {
+        case healthy
+        case unhealthy(String)
+    }
+
+    private enum EnhancedModeDataPlaneHealth {
+        case healthy(delay: Int)
+        case coreUnavailable(String)
+        case networkUnavailable(coreReason: String, directReason: String)
+    }
+
+    private struct EnhancedModeDataPlaneProbeContext {
+        let urls: [String]
+        var index: Int
+        var coreFailureReasons: [String]
+        var directFailureReasons: [String]
+    }
+
+    private struct TunInterfaceState {
+        let name: String
+        let ipv4: String?
+        let isUp: Bool
+    }
+
+    private struct OutboundModeChangeRequest {
+        let id: Int
+        let mode: ClashProxyMode
+        let source: OutboundModeChangeSource
+        let closeConnections: Bool
+        let completion: ((Bool) -> Void)?
     }
 
     private(set) var statusItem: NSStatusItem!
@@ -84,6 +123,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var localProxyProviderSubscriptionInfoAttemptTimes: [String: Date] = [:]
     private weak var advancedTunMenuItem: NSMenuItem?
     private weak var bypassChineseAppsMenuItem: NSMenuItem?
+    private weak var claudeProxyLockMenuItem: NSMenuItem?
     private weak var turnOffProxyMenuItem: NSMenuItem?
     var labHelpMenuItems: [NSMenuItem] = []
     private weak var labFeedbackMenuItem: NSMenuItem?
@@ -95,6 +135,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     var disposeBag = DisposeBag()
     var statusItemView: StatusItemViewProtocol!
     var isSpeedTesting = false
+    private var activeBenchmarkSession: ApiRequest.BenchmarkSession?
 
     var runAfterConfigReload: (() -> Void)?
     var isConfigUpdating = false
@@ -103,12 +144,101 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var pendingStreamResetWork: DispatchWorkItem?
     private var pendingEnhancedModeRefreshWork: DispatchWorkItem?
     private var pendingWakeRecoveryWork: DispatchWorkItem?
+    private var pendingStartupProxyRecoveryWork: DispatchWorkItem?
+    private var pendingProxyBypassReloadWork: DispatchWorkItem?
+    private var startupProxyRecoveryGeneration = 0
+    private var wakeRecoveryGeneration = 0
+    private let wakeRecoveryBreadcrumbLock = NSLock()
+    private var wakeRecoveryBreadcrumbToken = 0
+    private var wakeRecoveryBreadcrumb = "idle"
+    private var startupProxyRecoveryDeadline = Date.distantPast
+    private var isStartupProxyRecoveryActive = false
+    private var isStartupProxyRecoveryHealthCheckInFlight = false
+    private var didLoadInitialConfigForProxyRecovery = false
+    private var lastStartupProxyRecoveryDecision: StartupProxyRecoveryDecision?
+    private var lastStartupProxyConfigSyncTime = Date.distantPast
+    private var isWakeEnhancedModeRestarting = false
+    private var enhancedModeHealthTimer: Timer?
+    private var isEnhancedModeHealthCheckInFlight = false
+    private var isCoreCPUStatusCheckInFlight = false
+    private var coreCPUStatusRequestGeneration = 0
+    private var coreCPUWatchdogPolicy = CoreCPUWatchdogPolicy()
+    private var latestTrafficBytesPerSecond = 0
+    private var latestTrafficUpdateTime = Date.distantPast
+    private var consecutiveEnhancedModeHealthFailures = 0
+    private var consecutiveEnhancedModeDataPlaneFailures = 0
+    private var enhancedModeHealthGraceUntil = Date.distantPast
+    private var lastEnhancedModeDataPlaneProbeAt = Date.distantPast
+    private var lastEnhancedModeDataPlaneRecoveryTime = Date.distantPast
+    private var lastCoreCPURecoveryTime = Date.distantPast
+    private var isEnhancedModeRuntimeRecoveryPending = false
+    private(set) var enhancedModeRuntimeHealthSummary = "not checked"
+    private(set) var coreCPUWatchdogSummary = "not checked"
+    private(set) var wakeRecoveryDiagnosticSummary = "idle"
+    private var lastCoreLogRecoveryTime = Date.distantPast
+    private var didCompleteStaleEnhancedCoreCleanup = false
+    private var didRestartHelperDuringEnhancedLaunch = false
+    private var outboundModeRequestSequence = 0
+    private var latestOutboundModeRequestID = 0
+    private var outboundModeChangeQueue: [OutboundModeChangeRequest] = []
+    private var isOutboundModeChangeInFlight = false
+    private var desiredOutboundMode: ClashProxyMode?
+    private var pendingOutboundModeVerification:
+        (requestID: Int, mode: ClashProxyMode, source: OutboundModeChangeSource)?
+    private var deferredConfigSyncHandlers: [() -> Void] = []
+    private var configSyncRetryWork: DispatchWorkItem?
     private static let enhancedModeRestoreMaxAttempts = 12
     private static let enhancedModeRestoreRetryDelay: TimeInterval = 5
     private static let wakeRecoveryDelay: TimeInterval = 3
     private static let wakeRecoveryRetryDelay: TimeInterval = 2
     private static let wakeRecoveryMaxAttempts = 3
+    private static let startupProxyRecoveryWindow: TimeInterval = 90
+    private static let startupProxyRecoveryRetryDelay: TimeInterval = 2
+    private static let startupProxyRecoveryApplyDelay: TimeInterval = 1
+    private static let wakeEnhancedModeRestartMaxAttempts = 3
+    private static let enhancedModeHealthInterval: TimeInterval = 15
+    private static let enhancedModeHealthFailureThreshold = 3
+    private static let enhancedModeHealthGracePeriod: TimeInterval = 60
+    private static let enhancedModeHealthRequestTimeout: TimeInterval = 5
+    private static let enhancedModeDataPlaneProbeInterval: TimeInterval = 60
+    private static let enhancedModeDataPlaneProbeTimeoutMilliseconds = 5000
+    private static let enhancedModeDataPlaneProbeRequestTimeout: TimeInterval = 8
+    private static let enhancedModeDataPlaneFailureThreshold = 3
+    private static let enhancedModeDataPlaneRecoveryCooldown: TimeInterval = 10 * 60
+    private static let coreCPURecoveryCooldown: TimeInterval = 30 * 60
+    private static let coreCPUActiveTrafficThreshold = 64 * 1024
+    private static let coreCPUActiveTrafficFreshness: TimeInterval = 30
+    /// Literal-IP endpoints keep the system-direct baseline independent from
+    /// Mihomo DNS. Each endpoint is tested through core DIRECT first and, only
+    /// on failure, through ClashFX Networking's generated DIRECT exemption.
+    private static let enhancedModeDataPlaneProbeURLs = [
+        "http://223.5.5.5/",
+        "http://1.1.1.1/cdn-cgi/trace"
+    ]
+    private static let enhancedModeDNSProbeName = "example.com"
+    private static let enhancedModeHelperRestartDelay: TimeInterval = 1
+    private static let enhancedModeDiagnosticTimeout: TimeInterval = 8
+    private static let enhancedModeHelperRequestTimeout: TimeInterval = 5
+    private static let tunDNSRestoreTimeout: TimeInterval = 8
+    private static let staleEnhancedCoreCleanupTimeout: TimeInterval = 3
+    private static let fatalTunRecoveryCooldown: TimeInterval = 30
     private static let runtimePatchedConfigPath = kConfigFolderPath + ".runtime_config.yaml"
+
+    private lazy var enhancedModeHealthURLSession: URLSession = {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        configuration.timeoutIntervalForRequest = Self.enhancedModeDataPlaneProbeRequestTimeout
+        configuration.timeoutIntervalForResource = Self.enhancedModeDataPlaneProbeRequestTimeout
+        configuration.waitsForConnectivity = false
+        configuration.connectionProxyDictionary = [
+            kCFNetworkProxiesHTTPEnable as String: false,
+            kCFNetworkProxiesHTTPSEnable as String: false,
+            kCFNetworkProxiesSOCKSEnable as String: false,
+            kCFNetworkProxiesProxyAutoConfigEnable as String: false,
+            kCFNetworkProxiesProxyAutoDiscoveryEnable as String: false
+        ]
+        return URLSession(configuration: configuration)
+    }()
 
     /// Short-circuits TerminalConfirmAction during self-relaunch so the old
     /// status bar icon does not linger on "Quitting…" beside the new one (#84 #91).
@@ -140,6 +270,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ProcessInfo.processInfo.disableSuddenTermination()
         // setup menu item first
         statusItem = NSStatusBar.system.statusItem(withLength: statusItemLengthWithSpeed)
+        statusItem.autosaveName = "com.clashfx.app.statusItem"
         statusItemView = StatusItemView.create(statusItem: statusItem)
         statusItemView.updateSize(width: statusItemLengthWithSpeed)
         statusMenu.delegate = self
@@ -156,6 +287,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         installTurnOffProxyMenuItem()
         installAdvancedTunMenuItem()
         installBypassChineseAppsMenuItem()
+        installClaudeProxyLockMenuItem()
         DispatchQueue.main.async {
             self.postFinishLaunching()
         }
@@ -163,6 +295,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     func postFinishLaunching() {
         Logger.log("postFinishLaunching")
+        Settings.restoreSupersededBenchmarkURLIfNeeded()
         defer {
             DispatchQueue.main.asyncAfter(deadline: .now() + 8) {
                 self.checkMenuIconVisable()
@@ -224,19 +357,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             Logger.log("do not setup built in logger/traffic, useDirectApi = false")
         }
-        cleanupStaleMihomoCoreOnLaunch()
-
         // start proxy
         Logger.log("initClashCore")
         initClashCore()
         Logger.log("initClashCore finish")
         setupData()
+        prepareStartupProxyRecoveryIfNeeded()
         runAfterConfigReload = { [weak self] in
             if !Settings.builtInApiMode {
                 self?.selectAllowLanWithMenory()
             }
         }
-        updateConfig(showNotification: false)
+        updateConfig(showNotification: false) { [weak self] error in
+            self?.completeInitialConfigLoadForProxyRecovery(error: error)
+        }
         updateLoggingLevel()
         restoreEnhancedModeIfNeeded()
 
@@ -258,6 +392,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: .trayMenuSettingsChanged,
             object: nil
         )
+        startEnhancedModeHealthMonitor()
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -268,17 +403,50 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         return TerminalConfirmAction.run()
     }
 
+    private(set) var isTerminating = false
+
+    func prepareForTerminationCleanup() {
+        isTerminating = true
+        SystemProxyManager.shared.prepareForTermination()
+        cancelActiveSpeedTest(reason: "application quit", refreshMenu: false)
+        pendingStartupProxyRecoveryWork?.cancel()
+        pendingStartupProxyRecoveryWork = nil
+        isStartupProxyRecoveryActive = false
+        pendingWakeRecoveryWork?.cancel()
+        pendingWakeRecoveryWork = nil
+        wakeRecoveryGeneration += 1
+        enhancedModeHealthTimer?.invalidate()
+        enhancedModeHealthTimer = nil
+    }
+
+    func cancelTerminationCleanup() {
+        isTerminating = false
+        SystemProxyManager.shared.resumeAfterCancelledTermination()
+        statusItem.menu = statusMenu
+        startEnhancedModeHealthMonitor()
+        restoreEnhancedModeIfNeeded()
+    }
+
     func applicationWillTerminate(_ aNotification: Notification) {
         UserDefaults.standard.set(0, forKey: "launch_fail_times")
         Logger.log("ClashFX will terminate")
+        pendingStartupProxyRecoveryWork?.cancel()
+        pendingStartupProxyRecoveryWork = nil
+        isStartupProxyRecoveryActive = false
+        pendingWakeRecoveryWork?.cancel()
+        pendingWakeRecoveryWork = nil
+        wakeRecoveryGeneration += 1
+        enhancedModeHealthTimer?.invalidate()
+        enhancedModeHealthTimer = nil
         // Fallback: TerminalCleanUpAction.run() already handles Enhanced Mode cleanup
         // in the normal quit path. This guard only fires if applicationWillTerminate
         // is reached without going through TerminalCleanUpAction (e.g. forced termination).
-        if ConfigManager.shared.isEnhancedModeActive {
+        if ConfigManager.shared.isEnhancedModeActive, !isRestarting, !isTerminating {
             cleanupEnhancedModeForTermination {}
         }
-        if NetworkChangeNotifier.isCurrentSystemSetToClash(looser: true) ||
-            NetworkChangeNotifier.hasInterfaceProxySetToClash() {
+        if !Settings.claudeProxyLockEnabled, !isRestarting, !isTerminating,
+           NetworkChangeNotifier.isCurrentSystemSetToClash(looser: true) ||
+           NetworkChangeNotifier.hasInterfaceProxySetToClash() {
             Logger.log("Need Reset Proxy Setting again", level: .error)
             SystemProxyManager.shared.disableProxy()
         }
@@ -370,6 +538,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         enhancedModeMenuItem.setShortcut(for: .toggleEnhancedMode)
         showLogMenuItem.setShortcut(for: .log)
         dashboardMenuItem.setShortcut(for: .dashboard)
+        benchmarkMenuItem.setShortcut(for: .benchmark)
         connectionsMenuItem.setShortcut(for: .nativeDashboard)
     }
 
@@ -398,6 +567,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func refreshSubscriptionStatusMenuItem() {
         guard let item = subscriptionStatusMenuItem,
               let separator = subscriptionStatusSeparator else { return }
+        guard Settings.trayMenuShowSubscriptionInfo else {
+            hideSubscriptionStatusMenuItem(item: item, separator: separator)
+            return
+        }
 
         let activeName = ConfigManager.selectConfigName
         let activeRemote = RemoteConfigManager.shared.configs.first { $0.name == activeName }
@@ -406,11 +579,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         guard let info,
               let summary = SubscriptionInfoFormatter.menuSubtitle(for: info),
               let fullSummary = SubscriptionInfoFormatter.fullMenuSubtitle(for: info) else {
-            item.attributedTitle = NSAttributedString(string: "")
-            item.title = ""
-            item.toolTip = nil
-            item.isHidden = true
-            separator.isHidden = true
+            hideSubscriptionStatusMenuItem(item: item, separator: separator)
             refreshLocalProxyProviderSubscriptionStatus(configName: activeName)
             return
         }
@@ -419,9 +588,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             name: activeName,
             summary: summary
         )
-        item.toolTip = fullSummary
+        item.toolTip = SubscriptionInfoFormatter.statusRowTooltip(
+            name: activeName,
+            summary: fullSummary
+        )
         item.isHidden = false
         separator.isHidden = false
+    }
+
+    private func hideSubscriptionStatusMenuItem(item: NSMenuItem, separator: NSMenuItem) {
+        item.attributedTitle = NSAttributedString(string: "")
+        item.title = ""
+        item.toolTip = nil
+        item.isHidden = true
+        separator.isHidden = true
     }
 
     private func refreshLocalProxyProviderSubscriptionStatus(configName: String) {
@@ -547,20 +727,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             }.disposed(by: disposeBag)
 
-        if !PrivilegedHelperManager.shared.isHelperCheckFinished.value &&
-            ConfigManager.shared.proxyPortAutoSet {
-            PrivilegedHelperManager.shared.isHelperCheckFinished
-                .filter { $0 }
-                .take(1)
-                .take(while: { _ in ConfigManager.shared.proxyPortAutoSet })
-                .observe(on: MainScheduler.instance)
-                .bind(onNext: { _ in
-                    SystemProxyManager.shared.enableProxy()
-                }).disposed(by: disposeBag)
-        } else if ConfigManager.shared.proxyPortAutoSet {
-            SystemProxyManager.shared.enableProxy()
-        }
-
         LaunchAtLogin.shared
             .isEnableVirable
             .asObservable()
@@ -584,6 +750,210 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func prepareStartupProxyRecoveryIfNeeded() {
+        guard ConfigManager.shared.proxyPortAutoSet,
+              !ConfigManager.shared.proxyShouldPaused.value,
+              !Settings.enhancedMode else {
+            return
+        }
+
+        startupProxyRecoveryGeneration += 1
+        startupProxyRecoveryDeadline = Date().addingTimeInterval(Self.startupProxyRecoveryWindow)
+        isStartupProxyRecoveryActive = true
+        isStartupProxyRecoveryHealthCheckInFlight = false
+        didLoadInitialConfigForProxyRecovery = false
+        lastStartupProxyRecoveryDecision = nil
+        lastStartupProxyConfigSyncTime = .distantPast
+        Logger.log("Startup proxy recovery: waiting for initial config and network")
+        scheduleStartupProxyRecovery(after: 0)
+    }
+
+    private func completeInitialConfigLoadForProxyRecovery(error: ErrorString?) {
+        guard isStartupProxyRecoveryActive else { return }
+        if let error {
+            finishStartupProxyRecovery(
+                generation: startupProxyRecoveryGeneration,
+                success: false,
+                reason: "initial config failed: \(error)"
+            )
+            return
+        }
+
+        didLoadInitialConfigForProxyRecovery = true
+        lastStartupProxyConfigSyncTime = Date()
+        syncConfig { [weak self] in
+            self?.scheduleStartupProxyRecovery(after: 0)
+        }
+        scheduleStartupProxyRecovery(after: 0)
+    }
+
+    private func startupProxyRecoveryObservation() -> StartupProxyRecoveryObservation {
+        let config = ConfigManager.shared.currentConfig
+        return StartupProxyRecoveryObservation(
+            wantsSystemProxy: ConfigManager.shared.proxyPortAutoSet,
+            proxyPaused: ConfigManager.shared.proxyShouldPaused.value,
+            enhancedModeActive: Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive,
+            initialConfigLoaded: didLoadInitialConfigForProxyRecovery,
+            coreRunning: ConfigManager.shared.isRunning,
+            httpPort: config?.usedHttpPort ?? 0,
+            socksPort: config?.usedSocksPort ?? 0,
+            helperReady: PrivilegedHelperManager.shared.isHelperCheckFinished.value,
+            primaryInterfaceReady: NetworkChangeNotifier.getPrimaryInterface() != nil
+        )
+    }
+
+    private func scheduleStartupProxyRecovery(after delay: TimeInterval) {
+        guard isStartupProxyRecoveryActive else { return }
+        let generation = startupProxyRecoveryGeneration
+        guard Date() < startupProxyRecoveryDeadline else {
+            finishStartupProxyRecovery(
+                generation: generation,
+                success: false,
+                reason: "timed out waiting for a usable core, helper, network, and system proxy"
+            )
+            return
+        }
+
+        pendingStartupProxyRecoveryWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.attemptStartupProxyRecovery(generation: generation)
+        }
+        pendingStartupProxyRecoveryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
+    private func attemptStartupProxyRecovery(generation: Int) {
+        guard isStartupProxyRecoveryActive,
+              generation == startupProxyRecoveryGeneration else {
+            return
+        }
+        guard Date() < startupProxyRecoveryDeadline else {
+            finishStartupProxyRecovery(
+                generation: generation,
+                success: false,
+                reason: "timed out before system proxy recovery completed"
+            )
+            return
+        }
+
+        let decision = StartupProxyRecoveryPolicy.decide(startupProxyRecoveryObservation())
+        if decision != lastStartupProxyRecoveryDecision {
+            Logger.log("Startup proxy recovery: \(decision)", level: .debug)
+            lastStartupProxyRecoveryDecision = decision
+        }
+
+        switch decision {
+        case .stop:
+            finishStartupProxyRecovery(
+                generation: generation,
+                success: true,
+                reason: "system proxy is no longer requested",
+                updateVerifiedProxyState: false
+            )
+        case .waitForConfig:
+            if didLoadInitialConfigForProxyRecovery,
+               Date().timeIntervalSince(lastStartupProxyConfigSyncTime) >= 5 {
+                lastStartupProxyConfigSyncTime = Date()
+                syncConfig { [weak self] in
+                    self?.scheduleStartupProxyRecovery(after: 0)
+                }
+            }
+            scheduleStartupProxyRecovery(after: Self.startupProxyRecoveryRetryDelay)
+        case .waitForCore, .waitForHelper, .waitForNetwork:
+            scheduleStartupProxyRecovery(after: Self.startupProxyRecoveryRetryDelay)
+        case .verifyAndApply:
+            verifyAndApplyStartupSystemProxy(generation: generation)
+        }
+    }
+
+    private func verifyAndApplyStartupSystemProxy(generation: Int) {
+        guard !isStartupProxyRecoveryHealthCheckInFlight else {
+            scheduleStartupProxyRecovery(after: Self.startupProxyRecoveryRetryDelay)
+            return
+        }
+        isStartupProxyRecoveryHealthCheckInFlight = true
+
+        checkCoreHealthAfterWake { [weak self] health in
+            DispatchQueue.main.async {
+                guard let self,
+                      self.isStartupProxyRecoveryActive,
+                      generation == self.startupProxyRecoveryGeneration else {
+                    return
+                }
+                self.isStartupProxyRecoveryHealthCheckInFlight = false
+
+                guard case .healthy = health else {
+                    if case let .unhealthy(reason) = health {
+                        Logger.log(
+                            "Startup proxy recovery: core not ready: \(reason)",
+                            level: .warning
+                        )
+                    }
+                    self.scheduleStartupProxyRecovery(after: Self.startupProxyRecoveryRetryDelay)
+                    return
+                }
+
+                guard StartupProxyRecoveryPolicy.decide(
+                    self.startupProxyRecoveryObservation()
+                ) == .verifyAndApply else {
+                    self.scheduleStartupProxyRecovery(after: 0)
+                    return
+                }
+
+                if NetworkChangeNotifier.isCurrentSystemSetToClash() {
+                    self.finishStartupProxyRecovery(
+                        generation: generation,
+                        success: true,
+                        reason: "system proxy verified",
+                        updateVerifiedProxyState: true
+                    )
+                    return
+                }
+
+                guard let config = ConfigManager.shared.currentConfig else {
+                    self.scheduleStartupProxyRecovery(after: Self.startupProxyRecoveryRetryDelay)
+                    return
+                }
+                Logger.log(
+                    "Startup proxy recovery: applying system proxy on ready network",
+                    level: .warning
+                )
+                SystemProxyManager.shared.enableProxy(
+                    port: config.usedHttpPort,
+                    socksPort: config.usedSocksPort
+                )
+                self.scheduleStartupProxyRecovery(after: Self.startupProxyRecoveryApplyDelay)
+            }
+        }
+    }
+
+    private func finishStartupProxyRecovery(
+        generation: Int,
+        success: Bool,
+        reason: String,
+        updateVerifiedProxyState: Bool = false
+    ) {
+        guard isStartupProxyRecoveryActive,
+              generation == startupProxyRecoveryGeneration else {
+            return
+        }
+        pendingStartupProxyRecoveryWork?.cancel()
+        pendingStartupProxyRecoveryWork = nil
+        isStartupProxyRecoveryActive = false
+        isStartupProxyRecoveryHealthCheckInFlight = false
+        lastStartupProxyRecoveryDecision = nil
+
+        if success {
+            if updateVerifiedProxyState {
+                ConfigManager.shared.isProxySetByOtherVariable.accept(false)
+                refreshStatusItemViewStatus()
+            }
+            Logger.log("Startup proxy recovery completed: \(reason)")
+        } else {
+            Logger.log("Startup proxy recovery failed: \(reason)", level: .error)
+        }
+    }
+
     func setupNetworkNotifier() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
             NetworkChangeNotifier.start()
@@ -595,9 +965,20 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .notification(.systemNetworkStatusDidChange)
             .observe(on: MainScheduler.instance)
             .delay(.milliseconds(200), scheduler: MainScheduler.instance)
-            .bind { _ in
+            .bind { [weak self] _ in
+                guard self?.isTerminating == false else { return }
                 guard NetworkChangeNotifier.getPrimaryInterface() != nil else { return }
                 let proxySetted = NetworkChangeNotifier.isCurrentSystemSetToClash()
+                if !proxySetted,
+                   ConfigManager.shared.proxyPortAutoSet,
+                   self?.isStartupProxyRecoveryActive == true {
+                    Logger.log(
+                        "Startup proxy recovery: ignoring transient missing proxy notification",
+                        level: .debug
+                    )
+                    self?.scheduleStartupProxyRecovery(after: 0.1)
+                    return
+                }
                 ConfigManager.shared.isProxySetByOtherVariable.accept(!proxySetted)
                 if !proxySetted && ConfigManager.shared.proxyPortAutoSet {
                     let proxiesSetting = NetworkChangeNotifier.getRawProxySetting()
@@ -622,7 +1003,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .filter { $0 != nil }
             .observe(on: MainScheduler.instance)
             .debounce(.seconds(5), scheduler: MainScheduler.instance).bind { [weak self] _ in
+                guard self?.isTerminating == false else { return }
+                if self?.isStartupProxyRecoveryActive == true {
+                    self?.scheduleStartupProxyRecovery(after: 0.1)
+                }
                 self?.healthCheckOnNetworkChange()
+                if Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive {
+                    Logger.log("Network change: scheduling Enhanced Mode recovery check")
+                    self?.scheduleWakeRecovery()
+                }
             }.disposed(by: disposeBag)
 
         ConfigManager.shared
@@ -632,9 +1021,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             .distinctUntilChanged()
             .filter { $0 }
             .filter { _ in !ConfigManager.shared.proxyShouldPaused.value }
-            .bind { _ in
+            .bind { [weak self] _ in
                 let rawProxy = NetworkChangeNotifier.getRawProxySetting()
                 Logger.log("proxy changed to no clashX setting: \(rawProxy)", level: .warning)
+                if Settings.claudeProxyLockEnabled {
+                    Logger.log("Claude Proxy Lock is restoring the protected System Proxy", level: .warning)
+                    self?.enableSystemProxyForClaudeLock()
+                    return
+                }
                 NSUserNotificationCenter.default.postProxyChangeByOtherAppNotice()
             }.disposed(by: disposeBag)
 
@@ -816,10 +1210,81 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func syncConfig(completeHandler: (() -> Void)? = nil) {
-        ApiRequest.requestConfig { config in
+        let modeRequestSequence = outboundModeRequestSequence
+        guard !isOutboundModeChangeInFlight, outboundModeChangeQueue.isEmpty else {
+            scheduleConfigSyncRetry(completeHandler: completeHandler)
+            return
+        }
+
+        ApiRequest.requestConfig { [weak self] config in
+            guard let self = self else { return }
+            guard modeRequestSequence == self.outboundModeRequestSequence,
+                  !self.isOutboundModeChangeInFlight,
+                  self.outboundModeChangeQueue.isEmpty
+            else {
+                Logger.log(
+                    "Discarded stale config sync while outbound mode was changing",
+                    level: .debug
+                )
+                self.scheduleConfigSyncRetry(completeHandler: completeHandler)
+                return
+            }
+
             ConfigManager.shared.currentConfig = config
+            self.verifyPendingOutboundMode(using: config, requestSequence: modeRequestSequence)
+            if Settings.claudeProxyLockEnabled, config.mode != .rule {
+                Logger.log("Claude Proxy Lock is restoring Rule mode", level: .warning)
+                self.switchProxyMode(mode: .rule, source: .configReload)
+            }
             completeHandler?()
         }
+    }
+
+    private func scheduleConfigSyncRetry(completeHandler: (() -> Void)?) {
+        if let completeHandler {
+            deferredConfigSyncHandlers.append(completeHandler)
+        }
+        guard configSyncRetryWork == nil else { return }
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.configSyncRetryWork = nil
+            let handlers = self.deferredConfigSyncHandlers
+            self.deferredConfigSyncHandlers.removeAll()
+            self.syncConfig {
+                handlers.forEach { $0() }
+            }
+        }
+        configSyncRetryWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: work)
+    }
+
+    private func verifyPendingOutboundMode(
+        using config: ClashConfig,
+        requestSequence: Int
+    ) {
+        guard let verification = pendingOutboundModeVerification,
+              verification.requestID == requestSequence
+        else {
+            return
+        }
+        pendingOutboundModeVerification = nil
+
+        guard config.mode == verification.mode else {
+            Logger.log(
+                "Outbound mode verification failed: source=\(verification.source.rawValue) " +
+                    "requested=\(verification.mode.rawValue) actual=\(config.mode.rawValue)",
+                level: .error
+            )
+            ConfigManager.selectOutBoundMode = config.mode
+            notifyOutboundModeChangeFailure(mode: verification.mode)
+            return
+        }
+
+        Logger.log(
+            "Verified outbound mode: source=\(verification.source.rawValue) " +
+                "mode=\(verification.mode.rawValue)"
+        )
     }
 
     func resetStreamApi() {
@@ -844,7 +1309,19 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    func updateConfig(configName: String? = nil, showNotification: Bool = true, completeHandler: ((ErrorString?) -> Void)? = nil) {
+    func updateConfig(configName: String? = nil,
+                      showNotification: Bool = true,
+                      completeHandler: ((ErrorString?) -> Void)? = nil) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.updateConfig(
+                    configName: configName,
+                    showNotification: showNotification,
+                    completeHandler: completeHandler
+                )
+            }
+            return
+        }
         guard !isConfigUpdating else {
             Logger.log("updateConfig: skipped, already updating", level: .warning)
             completeHandler?("Config update already in progress")
@@ -853,6 +1330,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         startProxy()
         guard ConfigManager.shared.isRunning else { return }
 
+        cancelActiveSpeedTest(reason: "configuration reload", refreshMenu: false)
         isConfigUpdating = true
         clashPauseCallbacks()
         let config = configName ?? ConfigManager.selectConfigName
@@ -872,7 +1350,6 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             if let err {
                 UpdateConfigAction.showError(text: err, configName: config)
             } else {
-                self.syncConfig()
                 self.resetStreamApi()
                 self.runAfterConfigReload?()
                 self.runAfterConfigReload = nil
@@ -887,7 +1364,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 }
                 self.selectProxyGroupWithMemory()
                 self.selectOutBoundModeWithMenory()
-                MenuItemFactory.recreateProxyMenuItems()
+                MenuItemFactory.recreateProxyMenuItems(coreReloaded: true)
                 NotificationCenter.default.post(name: .reloadDashboard, object: nil)
             }
         }
@@ -895,14 +1372,53 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         requestConfigUpdateApplyingRuntimePatch(configName: config, callback: reloadCallback)
     }
 
+    func applyProxyBypassSettings() {
+        if ConfigManager.shared.proxyPortAutoSet {
+            SystemProxyManager.shared.enableProxy()
+        }
+
+        guard !Settings.enhancedMode, ConfigManager.shared.isRunning else {
+            return
+        }
+        scheduleProxyBypassConfigReload()
+    }
+
+    private func scheduleProxyBypassConfigReload(after delay: TimeInterval = 0.15) {
+        pendingProxyBypassReloadWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self = self else { return }
+            self.pendingProxyBypassReloadWork = nil
+            guard !Settings.enhancedMode, ConfigManager.shared.isRunning else {
+                return
+            }
+            guard !self.isConfigUpdating else {
+                self.scheduleProxyBypassConfigReload(after: 0.3)
+                return
+            }
+            self.updateConfig(showNotification: false) { error in
+                if let error {
+                    Logger.log(
+                        "Failed to apply updated System Proxy bypass rules: \(error)",
+                        level: .warning
+                    )
+                } else {
+                    Logger.log("Applied updated System Proxy bypass rules")
+                }
+            }
+        }
+        pendingProxyBypassReloadWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
+    }
+
     private func requestConfigUpdateApplyingRuntimePatch(configName: String, callback: @escaping ((ErrorString?) -> Void)) {
         ConfigManager.getConfigPath(configName: configName) { [weak self] sourcePath in
             guard let self = self else { return }
-            if let patchedPath = self.writeRuntimePatchedConfigIfNeeded(
+            let patch = self.writeRuntimePatchedConfigIfNeeded(
                 for: configName,
                 sourcePath: sourcePath,
                 includeRulePatch: true
-            ) {
+            )
+            if let patchedPath = patch.path {
                 ApiRequest.requestConfigUpdate(configPath: patchedPath, callback: callback)
             } else {
                 ApiRequest.requestConfigUpdate(configPath: sourcePath, callback: callback)
@@ -910,18 +1426,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private struct RuntimeConfigPatch {
+        var path: String?
+        var routeExcludeEntries: [String] = []
+    }
+
     private func writeRuntimePatchedConfigIfNeeded(
         for configName: String,
         sourcePath: String,
         includeRulePatch: Bool
-    ) -> String? {
+    ) -> RuntimeConfigPatch {
         let removePatched: () -> Void = {
             try? FileManager.default.removeItem(atPath: Self.runtimePatchedConfigPath)
         }
 
         guard FileManager.default.fileExists(atPath: sourcePath) else {
             removePatched()
-            return nil
+            return RuntimeConfigPatch()
         }
 
         do {
@@ -929,11 +1450,30 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             guard var root = try Yams.load(yaml: yaml) as? [String: Any] else {
                 Logger.log("[Runtime Patch] YAML root is not a dictionary, skipping", level: .warning)
                 removePatched()
-                return nil
+                return RuntimeConfigPatch()
             }
 
             var changed = applyProfileRuleDirectives(in: &root)
             changed = applyProfileMixin(to: &root) || changed
+
+            if Settings.claudeProxyLockEnabled {
+                if ClaudeProxyLockPolicy.isValidTarget(Settings.claudeProxyLockTarget) {
+                    let target = Settings.claudeProxyLockTarget
+                    let providers = claudeLockProviderSnapshots(in: root)
+                    let outcome = ClaudeProxyLockPolicy.apply(
+                        to: &root,
+                        target: target,
+                        providers: providers
+                    )
+                    changed = outcome.applied || changed
+                    logClaudeProxyLockOutcome(outcome, target: target)
+                } else {
+                    Logger.log("[Claude Proxy Lock] Invalid target; blocking the runtime config", level: .error)
+                    root["mode"] = "rule"
+                    root["rules"] = ["MATCH,REJECT"]
+                    changed = true
+                }
+            }
 
             if includeRulePatch && !Settings.enhancedMode {
                 let injectedRules = Settings.proxyIgnoreListAsRules()
@@ -943,7 +1483,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                         guard let parsedRules = rules as? [String] else {
                             Logger.log("[Runtime Patch] YAML rules is not a string array, skipping", level: .warning)
                             removePatched()
-                            return nil
+                            return RuntimeConfigPatch()
                         }
                         existingRules = parsedRules
                     } else {
@@ -956,18 +1496,83 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             guard changed else {
                 removePatched()
-                return nil
+                return RuntimeConfigPatch()
             }
 
             let patched = try Yams.dump(object: root)
             try patched.write(toFile: Self.runtimePatchedConfigPath, atomically: true, encoding: .utf8)
             Logger.log("[Runtime Patch] Wrote runtime config for \(configName) to \(Self.runtimePatchedConfigPath)")
-            return Self.runtimePatchedConfigPath
+            return RuntimeConfigPatch(path: Self.runtimePatchedConfigPath)
         } catch {
             Logger.log("[Runtime Patch] Failed: \(error.localizedDescription)", level: .warning)
             removePatched()
-            return nil
+            return RuntimeConfigPatch()
         }
+    }
+
+    private func logClaudeProxyLockOutcome(
+        _ outcome: ClaudeProxyLockPolicy.ApplyOutcome,
+        target: String
+    ) {
+        if let relay = outcome.relayProxy {
+            Logger.log("[Claude Proxy Lock] \(target) exits on the locked node; its server is reached through \(relay)")
+        } else {
+            Logger.log(
+                "[Claude Proxy Lock] \(target) has no fast relay, so its server is dialed directly",
+                level: .warning
+            )
+        }
+    }
+
+    private func claudeLockProviderSnapshots(in root: [String: Any]) -> [ClaudeProxyLockPolicy.ProviderSnapshot] {
+        guard let providers = root["proxy-providers"] as? [String: Any] else { return [] }
+        return providers.keys.sorted().compactMap { name in
+            guard let provider = providers[name] as? [String: Any] else { return nil }
+            var proxies = proxyDictionaries(from: provider["payload"])
+            if let path = provider["path"] as? String {
+                let fullPath = resolvedClaudeProviderPath(path)
+                if let yaml = try? String(contentsOfFile: fullPath, encoding: .utf8),
+                   let fileRoot = try? Yams.load(yaml: yaml) as? [String: Any] {
+                    proxies.append(contentsOf: proxyDictionaries(from: fileRoot["proxies"]))
+                }
+            }
+            let override = provider["override"] as? [String: Any]
+            return ClaudeProxyLockPolicy.ProviderSnapshot(
+                name: name,
+                dialerProxy: provider["dialer-proxy"] as? String,
+                overrideDialerProxy: override?["dialer-proxy"] as? String,
+                proxies: proxies
+            )
+        }
+    }
+
+    private func proxyDictionaries(from value: Any?) -> [[String: Any]] {
+        if let proxies = value as? [[String: Any]] {
+            return proxies
+        }
+        if let proxies = value as? [Any] {
+            return proxies.compactMap { $0 as? [String: Any] }
+        }
+        return []
+    }
+
+    private func resolvedClaudeProviderPath(_ path: String) -> String {
+        if path.hasPrefix("/") {
+            return path
+        }
+        let relative = path.hasPrefix("./") ? String(path.dropFirst(2)) : path
+        return (kConfigFolderPath as NSString).appendingPathComponent(relative)
+    }
+
+    private func mergedTunRouteExcludeList(_ extras: [String]) -> String {
+        var seen = Set<String>()
+        var merged: [String] = []
+        for entry in Settings.normalizeAndPersistTunRouteExcludeList() + extras {
+            let trimmed = entry.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, seen.insert(trimmed).inserted else { continue }
+            merged.append(trimmed)
+        }
+        return merged.joined(separator: ",")
     }
 
     private func applyProfileMixin(to root: inout [String: Any]) -> Bool {
@@ -1084,7 +1689,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func resetProxySettingOnWakeupFromSleep() {
+        guard !isTerminating else { return }
         Logger.log("Wake recovery: didWake received")
+        recordWakeRecoveryBreadcrumb("didWake received", expectsProgressWithin: Self.wakeRecoveryDelay + 2)
 
         if !ApiRequest.useDirectApi() {
             resetStreamApi()
@@ -1109,37 +1716,785 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func scheduleWakeRecovery() {
+        guard !isTerminating else { return }
         pendingWakeRecoveryWork?.cancel()
+        wakeRecoveryGeneration += 1
+        let generation = wakeRecoveryGeneration
+        recordWakeRecoveryBreadcrumb(
+            "generation \(generation) scheduled",
+            expectsProgressWithin: Self.wakeRecoveryDelay + 2
+        )
         let work = DispatchWorkItem { [weak self] in
-            self?.recoverProxyAfterWake(attemptsLeft: Self.wakeRecoveryMaxAttempts)
+            self?.recoverProxyAfterWake(
+                generation: generation,
+                attemptsLeft: Self.wakeRecoveryMaxAttempts
+            )
         }
         pendingWakeRecoveryWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.wakeRecoveryDelay, execute: work)
     }
 
-    private func recoverProxyAfterWake(attemptsLeft: Int) {
-        guard NetworkChangeNotifier.getPrimaryInterface() != nil else {
-            guard attemptsLeft > 1 else {
-                Logger.log("Wake recovery: primary interface never became ready", level: .error)
+    private func startEnhancedModeHealthMonitor() {
+        enhancedModeHealthTimer?.invalidate()
+        let timer = Timer.scheduledTimer(
+            withTimeInterval: Self.enhancedModeHealthInterval,
+            repeats: true
+        ) { [weak self] _ in
+            self?.checkEnhancedModeRuntimeHealth()
+        }
+        timer.tolerance = 3
+        enhancedModeHealthTimer = timer
+    }
+
+    private func checkEnhancedModeRuntimeHealth() {
+        guard Settings.enhancedMode,
+              ConfigManager.shared.isEnhancedModeActive,
+              enhancedModeMenuItem.isEnabled else {
+            coreCPUWatchdogPolicy.reset()
+            coreCPUWatchdogSummary = Settings.enhancedMode
+                ? "enabled preference; runtime not active"
+                : "inactive"
+            consecutiveEnhancedModeHealthFailures = 0
+            consecutiveEnhancedModeDataPlaneFailures = 0
+            enhancedModeRuntimeHealthSummary = Settings.enhancedMode
+                ? "enabled preference; runtime not active"
+                : "inactive"
+            return
+        }
+        guard !isWakeEnhancedModeRestarting,
+              !isEnhancedModeRuntimeRecoveryPending else { return }
+        guard Date() >= enhancedModeHealthGraceUntil else {
+            coreCPUWatchdogPolicy.reset()
+            coreCPUWatchdogSummary = "startup grace period"
+            consecutiveEnhancedModeHealthFailures = 0
+            consecutiveEnhancedModeDataPlaneFailures = 0
+            return
+        }
+        checkEnhancedModeCoreCPU()
+        guard !isEnhancedModeHealthCheckInFlight else { return }
+
+        isEnhancedModeHealthCheckInFlight = true
+        checkCoreHealthAfterWake { [weak self] health in
+            guard let self = self else { return }
+
+            guard Settings.enhancedMode,
+                  ConfigManager.shared.isEnhancedModeActive,
+                  self.enhancedModeMenuItem.isEnabled,
+                  !self.isWakeEnhancedModeRestarting,
+                  !self.isEnhancedModeRuntimeRecoveryPending else {
+                self.isEnhancedModeHealthCheckInFlight = false
+                self.consecutiveEnhancedModeHealthFailures = 0
+                self.consecutiveEnhancedModeDataPlaneFailures = 0
                 return
             }
-            Logger.log("Wake recovery: waiting for primary interface (\(attemptsLeft - 1) retries left)", level: .warning)
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.wakeRecoveryRetryDelay) { [weak self] in
-                self?.recoverProxyAfterWake(attemptsLeft: attemptsLeft - 1)
+
+            switch health {
+            case .healthy:
+                if self.consecutiveEnhancedModeHealthFailures > 0 {
+                    Logger.log("Enhanced Mode runtime health recovered")
+                    self.enhancedModeRuntimeHealthSummary =
+                        "control plane recovered; awaiting data-plane probe"
+                }
+                self.consecutiveEnhancedModeHealthFailures = 0
+                self.checkEnhancedModeDataPlaneIfDue()
+            case let .unhealthy(reason):
+                self.isEnhancedModeHealthCheckInFlight = false
+                self.consecutiveEnhancedModeDataPlaneFailures = 0
+                self.consecutiveEnhancedModeHealthFailures += 1
+                let failures = self.consecutiveEnhancedModeHealthFailures
+                self.enhancedModeRuntimeHealthSummary =
+                    "control-plane failed \(failures)/" +
+                    "\(Self.enhancedModeHealthFailureThreshold): \(reason)"
+                guard failures >= Self.enhancedModeHealthFailureThreshold else {
+                    Logger.log(
+                        "Enhanced Mode runtime health failed: \(reason) " +
+                            "(\(failures)/\(Self.enhancedModeHealthFailureThreshold))",
+                        level: .warning
+                    )
+                    return
+                }
+
+                self.consecutiveEnhancedModeHealthFailures = 0
+                Logger.log(
+                    "Enhanced Mode runtime is unhealthy: \(reason); rebuilding core",
+                    level: .error
+                )
+                self.captureAndRestartEnhancedMode(
+                    reason: "control plane unhealthy after " +
+                        "\(Self.enhancedModeHealthFailureThreshold) checks: \(reason)"
+                )
             }
+        }
+    }
+
+    private func checkEnhancedModeCoreCPU() {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard !isCoreCPUStatusCheckInFlight else { return }
+        guard !isSpeedTesting, !isConfigUpdating else {
+            coreCPUWatchdogPolicy.reset()
+            coreCPUWatchdogSummary = "paused during benchmark or configuration update"
+            return
+        }
+        let trafficAge = Date().timeIntervalSince(latestTrafficUpdateTime)
+        guard trafficAge < 0 ||
+            trafficAge > Self.coreCPUActiveTrafficFreshness ||
+            latestTrafficBytesPerSecond < Self.coreCPUActiveTrafficThreshold else {
+            coreCPUWatchdogPolicy.reset()
+            coreCPUWatchdogSummary =
+                "paused during active traffic: \(latestTrafficBytesPerSecond) B/s"
+            return
+        }
+        guard let helper = PrivilegedHelperManager.shared.helper() else {
+            coreCPUWatchdogPolicy.reset()
+            coreCPUWatchdogSummary = "helper unavailable"
             return
         }
 
-        checkCoreHealthAfterWake { [weak self] healthy in
-            guard let self = self else { return }
-            if healthy {
-                Logger.log("Wake recovery: core API is healthy")
-                self.finishHealthyWakeRecovery()
+        isCoreCPUStatusCheckInFlight = true
+        coreCPUStatusRequestGeneration += 1
+        let requestGeneration = coreCPUStatusRequestGeneration
+        let invocation: Void? = helper.getMihomoCoreStatus? { [weak self] optionalStatus in
+            DispatchQueue.main.async {
+                guard let self = self,
+                      requestGeneration == self.coreCPUStatusRequestGeneration else { return }
+                self.isCoreCPUStatusCheckInFlight = false
+                guard Settings.enhancedMode,
+                      ConfigManager.shared.isEnhancedModeActive,
+                      self.enhancedModeMenuItem.isEnabled,
+                      !self.isWakeEnhancedModeRestarting,
+                      !self.isEnhancedModeRuntimeRecoveryPending else {
+                    self.coreCPUWatchdogPolicy.reset()
+                    return
+                }
+
+                let status = optionalStatus ?? [:]
+                guard (status["running"] as? NSNumber)?.boolValue == true,
+                      let launchID = status["launchID"] as? String,
+                      let processIdentifier = (status["pid"] as? NSNumber)?.intValue,
+                      let cpuTimeNanoseconds = (status["cpuTimeNanoseconds"] as? NSNumber)?.doubleValue,
+                      let sampleUptime = (status["sampleUptime"] as? NSNumber)?.doubleValue else {
+                    self.coreCPUWatchdogPolicy.reset()
+                    self.coreCPUWatchdogSummary = status["cpuSampleError"] as? String
+                        ?? "CPU telemetry unavailable"
+                    return
+                }
+
+                let sample = CoreCPUWatchdogSample(
+                    launchID: launchID,
+                    processIdentifier: processIdentifier,
+                    cpuTime: cpuTimeNanoseconds / 1_000_000_000,
+                    sampleUptime: sampleUptime
+                )
+                self.handleCoreCPUWatchdogDecision(
+                    self.coreCPUWatchdogPolicy.observe(sample),
+                    sample: sample
+                )
+            }
+        }
+        if invocation == nil {
+            coreCPUStatusRequestGeneration += 1
+            isCoreCPUStatusCheckInFlight = false
+            coreCPUWatchdogPolicy.reset()
+            coreCPUWatchdogSummary = "installed helper lacks CPU telemetry"
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.enhancedModeHelperRequestTimeout
+        ) { [weak self] in
+            guard let self = self,
+                  self.isCoreCPUStatusCheckInFlight,
+                  requestGeneration == self.coreCPUStatusRequestGeneration else { return }
+            self.coreCPUStatusRequestGeneration += 1
+            self.isCoreCPUStatusCheckInFlight = false
+            self.coreCPUWatchdogPolicy.reset()
+            self.coreCPUWatchdogSummary = "helper CPU telemetry timed out"
+            Logger.log(
+                "Enhanced Mode core CPU telemetry timed out",
+                level: .warning
+            )
+        }
+    }
+
+    private func handleCoreCPUWatchdogDecision(
+        _ decision: CoreCPUWatchdogDecision,
+        sample: CoreCPUWatchdogSample
+    ) {
+        dispatchPrecondition(condition: .onQueue(.main))
+
+        func percentage(_ utilization: Double) -> Int {
+            Int((utilization * 100).rounded())
+        }
+
+        switch decision {
+        case .invalid:
+            coreCPUWatchdogSummary = "invalid CPU telemetry"
+        case .baseline:
+            coreCPUWatchdogSummary = "baseline pid=\(sample.processIdentifier)"
+        case let .normal(utilization):
+            coreCPUWatchdogSummary = "normal: \(percentage(utilization))% of one core"
+        case let .elevated(utilization, consecutiveSamples):
+            coreCPUWatchdogSummary =
+                "elevated: \(percentage(utilization))% of one core " +
+                "for \(consecutiveSamples) sample(s)"
+            if consecutiveSamples == 1 {
+                Logger.log(
+                    "Enhanced Mode core CPU is elevated: \(coreCPUWatchdogSummary)",
+                    level: .warning
+                )
+            }
+        case let .captureDiagnostic(utilization, consecutiveSamples):
+            coreCPUWatchdogSummary =
+                "diagnostic capture: \(percentage(utilization))% of one core " +
+                "for \(consecutiveSamples) sample(s)"
+            Logger.log(
+                "Enhanced Mode core CPU remained elevated; capturing diagnostic: " +
+                    coreCPUWatchdogSummary,
+                level: .error
+            )
+            captureExternalCoreDiagnostic(reason: coreCPUWatchdogSummary) {}
+        case let .recover(utilization, consecutiveSamples):
+            let reason =
+                "sustained core CPU: \(percentage(utilization))% of one core " +
+                "for \(consecutiveSamples) sample(s), pid=\(sample.processIdentifier), " +
+                "launch=\(sample.launchID)"
+            let now = Date()
+            guard now.timeIntervalSince(lastCoreCPURecoveryTime) >=
+                Self.coreCPURecoveryCooldown else {
+                coreCPUWatchdogSummary = "recovery cooldown active after \(reason)"
+                Logger.log(
+                    "Enhanced Mode core CPU remains elevated, but automatic recovery " +
+                        "is in cooldown: \(reason)",
+                    level: .warning
+                )
                 return
             }
 
-            Logger.log("Wake recovery: core API is not responding; restoring active proxy mode", level: .error)
-            self.restoreCoreAfterWake()
+            lastCoreCPURecoveryTime = now
+            coreCPUWatchdogSummary = "automatic recovery triggered: \(reason)"
+            Logger.log(
+                "Enhanced Mode core CPU remained elevated; rebuilding core: \(reason)",
+                level: .error
+            )
+            captureAndRestartEnhancedMode(reason: reason)
+        }
+    }
+
+    private func checkEnhancedModeDataPlaneIfDue() {
+        let now = Date()
+        guard now.timeIntervalSince(lastEnhancedModeDataPlaneProbeAt) >=
+            Self.enhancedModeDataPlaneProbeInterval,
+            !isSpeedTesting,
+            !isConfigUpdating,
+            NetworkChangeNotifier.getPrimaryInterface() != nil else {
+            isEnhancedModeHealthCheckInFlight = false
+            return
+        }
+
+        lastEnhancedModeDataPlaneProbeAt = now
+        probeEnhancedModeDataPlane { [weak self] result in
+            guard let self = self else { return }
+            self.isEnhancedModeHealthCheckInFlight = false
+
+            guard Settings.enhancedMode,
+                  ConfigManager.shared.isEnhancedModeActive,
+                  self.enhancedModeMenuItem.isEnabled,
+                  !self.isWakeEnhancedModeRestarting,
+                  !self.isEnhancedModeRuntimeRecoveryPending else {
+                self.consecutiveEnhancedModeDataPlaneFailures = 0
+                return
+            }
+
+            self.handleEnhancedModeDataPlaneHealth(result)
+        }
+    }
+
+    private func probeEnhancedModeDataPlane(
+        completion: @escaping (EnhancedModeDataPlaneHealth) -> Void
+    ) {
+        probeEnhancedModeDataPlane(
+            context: EnhancedModeDataPlaneProbeContext(
+                urls: Self.enhancedModeDataPlaneProbeURLs,
+                index: 0,
+                coreFailureReasons: [],
+                directFailureReasons: []
+            )
+        ) { [weak self] outboundHealth in
+            guard let self = self else { return }
+            guard case let .healthy(delay) = outboundHealth else {
+                completion(outboundHealth)
+                return
+            }
+            self.probeCoreDNS { healthy, reason in
+                completion(
+                    healthy
+                        ? .healthy(delay: delay)
+                        : .coreUnavailable(reason)
+                )
+            }
+        }
+    }
+
+    private func probeEnhancedModeDataPlane(
+        context: EnhancedModeDataPlaneProbeContext,
+        completion: @escaping (EnhancedModeDataPlaneHealth) -> Void
+    ) {
+        guard context.index < context.urls.count else {
+            completion(.networkUnavailable(
+                coreReason: context.coreFailureReasons.joined(separator: "; "),
+                directReason: context.directFailureReasons.joined(separator: "; ")
+            ))
+            return
+        }
+
+        let probeURL = context.urls[context.index]
+        probeCoreDirectDataPlane(url: probeURL) { [weak self] delay, coreReason in
+            guard let self = self else { return }
+            if let delay {
+                completion(.healthy(delay: delay))
+                return
+            }
+
+            self.probeSystemDirectBaseline(url: probeURL) {
+                directReachable, directReason in
+                if directReachable {
+                    completion(.coreUnavailable(
+                        "endpoint \(context.index + 1): \(coreReason)"
+                    ))
+                } else {
+                    var nextContext = context
+                    nextContext.coreFailureReasons.append(
+                        "endpoint \(context.index + 1): \(coreReason)"
+                    )
+                    nextContext.directFailureReasons.append(
+                        "endpoint \(context.index + 1): \(directReason)"
+                    )
+                    nextContext.index += 1
+                    self.probeEnhancedModeDataPlane(
+                        context: nextContext,
+                        completion: completion
+                    )
+                }
+            }
+        }
+    }
+
+    private func probeCoreDirectDataPlane(
+        url probeURL: String,
+        completion: @escaping (_ delay: Int?, _ reason: String) -> Void
+    ) {
+        guard var components = URLComponents(
+            string: ConfigManager.apiUrl.appending("/proxies/DIRECT/delay")
+        ) else {
+            completion(nil, "invalid DIRECT probe URL")
+            return
+        }
+        components.queryItems = [
+            URLQueryItem(
+                name: "timeout",
+                value: "\(Self.enhancedModeDataPlaneProbeTimeoutMilliseconds)"
+            ),
+            URLQueryItem(name: "url", value: probeURL)
+        ]
+        guard let url = components.url else {
+            completion(nil, "invalid DIRECT probe query")
+            return
+        }
+
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+            timeoutInterval: Self.enhancedModeDataPlaneProbeRequestTimeout
+        )
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        for header in ApiRequest.authHeader() {
+            request.setValue(header.value, forHTTPHeaderField: header.name)
+        }
+
+        enhancedModeHealthURLSession.dataTask(with: request) { data, response, error in
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let delay: Int? = {
+                guard (200 ..< 300).contains(statusCode),
+                      let data,
+                      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let value = root["delay"] as? NSNumber,
+                      value.intValue > 0 else {
+                    return nil
+                }
+                return value.intValue
+            }()
+            let reason: String
+            if delay != nil {
+                reason = ""
+            } else if let error {
+                reason = "DIRECT probe error=\(error.localizedDescription)"
+            } else {
+                reason = "DIRECT probe status=\(statusCode) returned no delay"
+            }
+            DispatchQueue.main.async {
+                completion(delay, reason)
+            }
+        }.resume()
+    }
+
+    private func probeSystemDirectBaseline(
+        url probeURL: String,
+        completion: @escaping (_ reachable: Bool, _ reason: String) -> Void
+    ) {
+        guard let url = URL(string: probeURL) else {
+            completion(false, "invalid direct baseline URL")
+            return
+        }
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+            timeoutInterval: Self.enhancedModeDataPlaneProbeRequestTimeout
+        )
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+
+        enhancedModeHealthURLSession.dataTask(with: request) { _, response, error in
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let reachable = response is HTTPURLResponse
+            let reason: String
+            if reachable {
+                reason = "status=\(statusCode)"
+            } else {
+                reason = error?.localizedDescription ?? "no HTTP response"
+            }
+            DispatchQueue.main.async {
+                completion(reachable, reason)
+            }
+        }.resume()
+    }
+
+    private func probeCoreDNS(
+        completion: @escaping (_ healthy: Bool, _ reason: String) -> Void
+    ) {
+        guard var components = URLComponents(
+            string: ConfigManager.apiUrl.appending("/dns/query")
+        ) else {
+            completion(false, "invalid DNS probe URL")
+            return
+        }
+        components.queryItems = [
+            URLQueryItem(name: "name", value: Self.enhancedModeDNSProbeName),
+            URLQueryItem(name: "type", value: "A")
+        ]
+        guard let url = components.url else {
+            completion(false, "invalid DNS probe query")
+            return
+        }
+
+        var request = URLRequest(
+            url: url,
+            cachePolicy: .reloadIgnoringLocalAndRemoteCacheData,
+            timeoutInterval: Self.enhancedModeDataPlaneProbeRequestTimeout
+        )
+        request.setValue("no-cache", forHTTPHeaderField: "Cache-Control")
+        for header in ApiRequest.authHeader() {
+            request.setValue(header.value, forHTTPHeaderField: header.name)
+        }
+
+        enhancedModeHealthURLSession.dataTask(with: request) { data, response, error in
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let dnsHealthy: Bool = {
+                guard (200 ..< 300).contains(statusCode),
+                      let data,
+                      let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      (root["Status"] as? NSNumber)?.intValue == 0,
+                      let answers = root["Answer"] as? [Any],
+                      !answers.isEmpty else {
+                    return false
+                }
+                return true
+            }()
+            let reason: String
+            if dnsHealthy {
+                reason = ""
+            } else if let error {
+                reason = "core DNS probe error=\(error.localizedDescription)"
+            } else {
+                reason = "core DNS probe status=\(statusCode) returned no answer"
+            }
+            DispatchQueue.main.async {
+                completion(dnsHealthy, reason)
+            }
+        }.resume()
+    }
+
+    private func handleEnhancedModeDataPlaneHealth(_ health: EnhancedModeDataPlaneHealth) {
+        switch health {
+        case let .healthy(delay):
+            if consecutiveEnhancedModeDataPlaneFailures > 0 {
+                Logger.log(
+                    "Enhanced Mode data plane recovered (DIRECT \(delay) ms)"
+                )
+            }
+            consecutiveEnhancedModeDataPlaneFailures = RuntimeDataPlaneFailurePolicy.nextFailureCount(
+                current: consecutiveEnhancedModeDataPlaneFailures,
+                outcome: .healthy
+            )
+            enhancedModeRuntimeHealthSummary = "healthy (DIRECT \(delay) ms)"
+
+        case let .networkUnavailable(coreReason, directReason):
+            let preservedFailures = RuntimeDataPlaneFailurePolicy.nextFailureCount(
+                current: consecutiveEnhancedModeDataPlaneFailures,
+                outcome: .baselineUnavailable
+            )
+            if preservedFailures > 0 {
+                Logger.log(
+                    "Enhanced Mode data-plane result is inconclusive because the " +
+                        "system direct baseline also failed; preserving prior failure evidence",
+                    level: .warning
+                )
+            }
+            consecutiveEnhancedModeDataPlaneFailures = preservedFailures
+            enhancedModeRuntimeHealthSummary =
+                "inconclusive (system direct baseline unavailable)"
+            Logger.log(
+                "Enhanced Mode data-plane probe inconclusive: core=\(coreReason); " +
+                    "system-direct=\(directReason)",
+                level: .warning
+            )
+
+        case let .coreUnavailable(reason):
+            consecutiveEnhancedModeDataPlaneFailures = RuntimeDataPlaneFailurePolicy.nextFailureCount(
+                current: consecutiveEnhancedModeDataPlaneFailures,
+                outcome: .confirmedCoreFailure
+            )
+            let failures = consecutiveEnhancedModeDataPlaneFailures
+            enhancedModeRuntimeHealthSummary =
+                "failed \(failures)/\(Self.enhancedModeDataPlaneFailureThreshold) " +
+                "(system direct baseline healthy)"
+
+            guard failures >= Self.enhancedModeDataPlaneFailureThreshold else {
+                Logger.log(
+                    "Enhanced Mode data-plane probe failed while system direct is " +
+                        "reachable: \(reason) " +
+                        "(\(failures)/\(Self.enhancedModeDataPlaneFailureThreshold))",
+                    level: .warning
+                )
+                return
+            }
+
+            consecutiveEnhancedModeDataPlaneFailures = 0
+            let now = Date()
+            guard now.timeIntervalSince(lastEnhancedModeDataPlaneRecoveryTime) >=
+                Self.enhancedModeDataPlaneRecoveryCooldown else {
+                enhancedModeRuntimeHealthSummary =
+                    "failure threshold reached; recovery cooldown active"
+                Logger.log(
+                    "Enhanced Mode data plane remains unhealthy, but automatic " +
+                        "recovery is in cooldown",
+                    level: .warning
+                )
+                return
+            }
+
+            lastEnhancedModeDataPlaneRecoveryTime = now
+            enhancedModeRuntimeHealthSummary =
+                "automatic recovery triggered after confirmed data-plane failures"
+            let diagnosticReason =
+                "runtime data plane failed \(Self.enhancedModeDataPlaneFailureThreshold) " +
+                "times while system direct remained reachable: \(reason)"
+            captureAndRestartEnhancedMode(reason: diagnosticReason)
+        }
+    }
+
+    private func captureAndRestartEnhancedMode(reason: String) {
+        guard Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive,
+              enhancedModeMenuItem.isEnabled,
+              !isWakeEnhancedModeRestarting,
+              !isEnhancedModeRuntimeRecoveryPending else {
+            return
+        }
+
+        isEnhancedModeRuntimeRecoveryPending = true
+        enhancedModeRuntimeHealthSummary =
+            "automatic recovery pending after confirmed runtime failure"
+        logEnhancedModeRuntimeDiagnosticSnapshot(reason: reason)
+        captureExternalCoreDiagnostic(reason: reason) { [weak self] in
+            guard let self = self else { return }
+            self.isEnhancedModeRuntimeRecoveryPending = false
+            guard Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive,
+                  self.enhancedModeMenuItem.isEnabled,
+                  !self.isWakeEnhancedModeRestarting else {
+                return
+            }
+            Logger.log(
+                "Enhanced Mode runtime is unhealthy after confirmed checks; " +
+                    "rebuilding core",
+                level: .error
+            )
+            self.restartEnhancedModeAfterWake(
+                attemptsLeft: Self.wakeEnhancedModeRestartMaxAttempts
+            )
+        }
+    }
+
+    private func logEnhancedModeRuntimeDiagnosticSnapshot(reason: String) {
+        let config = ConfigManager.shared.currentConfig
+        Logger.log(
+            "Enhanced Mode runtime diagnostic: reason=\(reason); " +
+                "primaryInterface=\(NetworkChangeNotifier.getPrimaryInterface() ?? "none"); " +
+                "systemProxyMatches=\(NetworkChangeNotifier.isCurrentSystemSetToClash()); " +
+                "httpPort=\(config?.usedHttpPort ?? 0); " +
+                "apiPort=\(ConfigManager.shared.apiPort); " +
+                "tun=\(tunInterfaceSummaryForLog())",
+            level: .error
+        )
+    }
+
+    private func recoverFromCoreLogFailure(_ reason: CoreLogRecoveryReason) {
+        let recover = { [weak self] in
+            guard let self = self else { return }
+            guard !self.isTerminating else { return }
+            guard Settings.enhancedMode,
+                  ConfigManager.shared.isEnhancedModeActive,
+                  self.enhancedModeMenuItem.isEnabled,
+                  !self.isWakeEnhancedModeRestarting,
+                  !self.isEnhancedModeRuntimeRecoveryPending else {
+                return
+            }
+            let now = Date()
+            guard now.timeIntervalSince(self.lastCoreLogRecoveryTime) >=
+                Self.fatalTunRecoveryCooldown else { return }
+
+            self.lastCoreLogRecoveryTime = now
+            self.consecutiveEnhancedModeHealthFailures = 0
+            let message: String
+            switch reason {
+            case .closedTunSocket:
+                message = "Detected a closed TUN socket read loop; rebuilding Enhanced Mode"
+            case .outboundInterfaceUnavailable:
+                message = "Detected a TUN outbound-interface error storm; rebuilding Enhanced Mode"
+            }
+            Logger.log(message, level: .error)
+            self.captureAndRestartEnhancedMode(
+                reason: "fatal core log signal: \(message)"
+            )
+        }
+
+        if Thread.isMainThread {
+            recover()
+        } else {
+            DispatchQueue.main.async(execute: recover)
+        }
+    }
+
+    private func recoverProxyAfterWake(generation: Int, attemptsLeft: Int) {
+        guard generation == wakeRecoveryGeneration else {
+            Logger.log(
+                "Wake recovery: ignored obsolete generation \(generation)",
+                level: .debug
+            )
+            return
+        }
+        recordWakeRecoveryBreadcrumb(
+            "generation \(generation) probing with \(attemptsLeft) attempt(s) left",
+            expectsProgressWithin: Self.enhancedModeHealthRequestTimeout + 2
+        )
+        guard !isWakeEnhancedModeRestarting else {
+            Logger.log("Wake recovery: Enhanced Mode rebuild already in progress", level: .debug)
+            recordWakeRecoveryBreadcrumb(
+                "generation \(generation) deferred to Enhanced Mode rebuild"
+            )
+            return
+        }
+
+        guard NetworkChangeNotifier.getPrimaryInterface() != nil else {
+            guard attemptsLeft > 1 else {
+                Logger.log("Wake recovery: primary interface never became ready", level: .error)
+                recordWakeRecoveryBreadcrumb(
+                    "generation \(generation) ended: primary interface unavailable"
+                )
+                return
+            }
+            Logger.log("Wake recovery: waiting for primary interface (\(attemptsLeft - 1) retries left)", level: .warning)
+            let retryDelay = WakeRecoveryRetryPolicy.delay(
+                baseDelay: Self.wakeRecoveryRetryDelay,
+                maximumAttempts: Self.wakeRecoveryMaxAttempts,
+                attemptsLeft: attemptsLeft
+            )
+            let work = DispatchWorkItem { [weak self] in
+                self?.recoverProxyAfterWake(
+                    generation: generation,
+                    attemptsLeft: attemptsLeft - 1
+                )
+            }
+            pendingWakeRecoveryWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + retryDelay, execute: work)
+            return
+        }
+
+        checkCoreHealthAfterWake { [weak self] health in
+            guard let self = self,
+                  generation == self.wakeRecoveryGeneration else { return }
+            switch health {
+            case .healthy:
+                Logger.log("Wake recovery: core API is healthy")
+                self.recordWakeRecoveryBreadcrumb("generation \(generation) healthy")
+                self.finishHealthyWakeRecovery()
+            case let .unhealthy(reason):
+                guard attemptsLeft > 1 else {
+                    Logger.log("Wake recovery: \(reason); restoring active proxy mode", level: .error)
+                    self.recordWakeRecoveryBreadcrumb(
+                        "generation \(generation) recovery triggered: \(reason)"
+                    )
+                    self.restoreCoreAfterWake(generation: generation)
+                    return
+                }
+
+                let retryDelay = WakeRecoveryRetryPolicy.delay(
+                    baseDelay: Self.wakeRecoveryRetryDelay,
+                    maximumAttempts: Self.wakeRecoveryMaxAttempts,
+                    attemptsLeft: attemptsLeft
+                )
+                Logger.log(
+                    "Wake recovery: \(reason); retrying in \(retryDelay)s " +
+                        "(\(attemptsLeft - 1) retries left)",
+                    level: .warning
+                )
+                let work = DispatchWorkItem { [weak self] in
+                    self?.recoverProxyAfterWake(
+                        generation: generation,
+                        attemptsLeft: attemptsLeft - 1
+                    )
+                }
+                self.pendingWakeRecoveryWork = work
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + retryDelay,
+                    execute: work
+                )
+            }
+        }
+    }
+
+    private func recordWakeRecoveryBreadcrumb(
+        _ stage: String,
+        expectsProgressWithin timeout: TimeInterval? = nil
+    ) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        wakeRecoveryBreadcrumbLock.lock()
+        wakeRecoveryBreadcrumbToken += 1
+        let token = wakeRecoveryBreadcrumbToken
+        wakeRecoveryBreadcrumb = stage
+        wakeRecoveryDiagnosticSummary = stage
+        wakeRecoveryBreadcrumbLock.unlock()
+        Logger.log("Wake recovery breadcrumb: \(stage)", level: .debug)
+
+        guard let timeout else { return }
+        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout) { [weak self] in
+            guard let self = self else { return }
+            self.wakeRecoveryBreadcrumbLock.lock()
+            let hasNotAdvanced = self.wakeRecoveryBreadcrumbToken == token
+            let currentStage = self.wakeRecoveryBreadcrumb
+            self.wakeRecoveryBreadcrumbLock.unlock()
+            guard hasNotAdvanced else { return }
+            Logger.log(
+                "Wake recovery watchdog: main-queue stage has not advanced from '\(currentStage)' for \(timeout)s",
+                level: .warning
+            )
         }
     }
 
@@ -1164,28 +2519,21 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func restoreCoreAfterWake() {
-        if Settings.enhancedMode {
-            Logger.log("Wake recovery: restoring Enhanced Mode")
-            restoreEnhancedMode(attemptsLeft: 3)
-            return
-        }
-
-        if ConfigManager.shared.isEnhancedModeActive {
-            Logger.log("Wake recovery: Enhanced Mode active without persisted setting; restarting Enhanced Mode", level: .warning)
-            enableEnhancedMode { [weak self] error in
-                if let error = error {
-                    Logger.log("Wake recovery: Enhanced Mode restart failed: \(error)", level: .error)
-                    return
-                }
-                self?.scheduleEnhancedModePostToggleRefresh()
-            }
+    private func restoreCoreAfterWake(generation: Int) {
+        guard generation == wakeRecoveryGeneration else { return }
+        if Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive {
+            Logger.log("Wake recovery: stopping and rebuilding Enhanced Mode")
+            captureAndRestartEnhancedMode(
+                reason: "wake/network recovery exhausted after core health failures"
+            )
             return
         }
 
         Logger.log("Wake recovery: restarting built-in core")
         ConfigManager.shared.isRunning = false
         updateConfig(showNotification: false) { [weak self] error in
+            guard let self = self,
+                  generation == self.wakeRecoveryGeneration else { return }
             if let error = error {
                 Logger.log("Wake recovery: built-in core restore failed: \(error)", level: .error)
                 return
@@ -1195,34 +2543,186 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                !ConfigManager.shared.isProxySetByOtherVariable.value {
                 SystemProxyManager.shared.enableProxy()
             }
-            self?.resetStreamApi()
+            self.resetStreamApi()
         }
     }
 
-    private func checkCoreHealthAfterWake(complete: @escaping (Bool) -> Void) {
+    private func checkCoreHealthAfterWake(complete: @escaping (WakeCoreHealth) -> Void) {
         guard let url = URL(string: ConfigManager.apiUrl.appending("/configs")) else {
-            complete(false)
+            complete(.unhealthy("invalid core API URL"))
             return
         }
-        var request = URLRequest(url: url, timeoutInterval: 2)
+        var request = URLRequest(
+            url: url,
+            timeoutInterval: Self.enhancedModeHealthRequestTimeout
+        )
         for header in ApiRequest.authHeader() {
             request.setValue(header.value, forHTTPHeaderField: header.name)
         }
-        URLSession.shared.dataTask(with: request) { _, response, error in
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self = self else { return }
             let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
-            let healthy = statusCode == 200
-            if !healthy {
+            guard statusCode == 200 else {
                 Logger.log("Wake recovery: /configs health failed status=\(statusCode), error=\(error?.localizedDescription ?? "none")", level: .warning)
+                DispatchQueue.main.async {
+                    complete(.unhealthy("core API is not responding"))
+                }
+                return
             }
+
+            let enhancedModeExpected = Settings.enhancedMode ||
+                ConfigManager.shared.isEnhancedModeActive
+            guard enhancedModeExpected else {
+                DispatchQueue.main.async {
+                    complete(.healthy)
+                }
+                return
+            }
+
+            guard let data,
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tun = root["tun"] as? [String: Any] else {
+                DispatchQueue.main.async {
+                    complete(.unhealthy("core API returned no TUN state"))
+                }
+                return
+            }
+
+            guard tun["enable"] as? Bool == true else {
+                DispatchQueue.main.async {
+                    complete(.unhealthy("core API reports TUN disabled"))
+                }
+                return
+            }
+
+            let device = tun["device"] as? String
+            guard self.hasUsableEnhancedTunInterface(expectedDevice: device) else {
+                let summary = self.tunInterfaceSummaryForLog()
+                DispatchQueue.main.async {
+                    complete(.unhealthy("TUN interface is unavailable (\(summary))"))
+                }
+                return
+            }
+
             DispatchQueue.main.async {
-                complete(healthy)
+                complete(.healthy)
             }
         }.resume()
     }
 
+    private func restartEnhancedModeAfterWake(attemptsLeft: Int) {
+        if attemptsLeft == Self.wakeEnhancedModeRestartMaxAttempts {
+            guard !isWakeEnhancedModeRestarting,
+                  !isEnhancedModeRuntimeRecoveryPending else { return }
+            isWakeEnhancedModeRestarting = true
+            didRestartHelperDuringEnhancedLaunch = false
+            cancelActiveSpeedTest(reason: "Enhanced Mode core recovery")
+        }
+
+        let wasActive = ConfigManager.shared.isEnhancedModeActive
+        var attemptCompleted = false
+
+        let retryOrFail: (String) -> Void = { [weak self] error in
+            guard let self = self else { return }
+            guard !attemptCompleted else { return }
+            attemptCompleted = true
+            if attemptsLeft > 1, Settings.enhancedMode {
+                Logger.log(
+                    "Wake recovery: Enhanced Mode rebuild failed: \(error). " +
+                        "Retrying in \(Self.enhancedModeRestoreRetryDelay)s " +
+                        "(\(attemptsLeft - 1) retries left)",
+                    level: .warning
+                )
+                DispatchQueue.main.asyncAfter(
+                    deadline: .now() + Self.enhancedModeRestoreRetryDelay
+                ) { [weak self] in
+                    self?.restartEnhancedModeAfterWake(attemptsLeft: attemptsLeft - 1)
+                }
+                return
+            }
+
+            self.isWakeEnhancedModeRestarting = false
+            self.finishFailedEnhancedModeRestore(error: error)
+        }
+
+        guard let helper = PrivilegedHelperManager.shared.helper(failture: {
+            DispatchQueue.main.async {
+                if wasActive {
+                    ConfigManager.shared.isEnhancedModeActive = false
+                    clashResumeCallbacks()
+                    _ = clashResumeCore()
+                }
+                retryOrFail(NSLocalizedString("Helper not available", comment: ""))
+            }
+        }) else {
+            if wasActive {
+                ConfigManager.shared.isEnhancedModeActive = false
+                clashResumeCallbacks()
+                _ = clashResumeCore()
+            }
+            retryOrFail(NSLocalizedString("Helper not available", comment: ""))
+            return
+        }
+
+        enhancedModeMenuItem.isEnabled = false
+        let stopAndRestart = { [weak self] in
+            helper.stopMihomoCore { [weak self] stopError in
+                DispatchQueue.main.async {
+                    guard let self = self else { return }
+                    guard !attemptCompleted else { return }
+                    if let stopError {
+                        Logger.log(
+                            "Wake recovery: failed to stop stale Enhanced Mode core: \(stopError)",
+                            level: .warning
+                        )
+                    }
+
+                    ConfigManager.shared.isEnhancedModeActive = false
+                    self.refreshStatusItemViewStatus()
+
+                    let completion: (String?) -> Void = { [weak self] error in
+                        guard let self = self else { return }
+                        guard !attemptCompleted else { return }
+                        if let error {
+                            retryOrFail(error)
+                            return
+                        }
+
+                        attemptCompleted = true
+                        self.isWakeEnhancedModeRestarting = false
+                        self.enhancedModeMenuItem.isEnabled = true
+                        self.enhancedModeMenuItem.state = .on
+                        Logger.log("Wake recovery: Enhanced Mode rebuilt successfully")
+                        self.scheduleEnhancedModePostToggleRefresh()
+                    }
+
+                    if wasActive {
+                        self.attemptEnableEnhancedMode(
+                            attemptsLeft: 1,
+                            alreadySuspended: true,
+                            completion: completion
+                        )
+                    } else {
+                        self.enableEnhancedMode(completion: completion)
+                    }
+                }
+            }
+        }
+
+        if wasActive {
+            restoreDNSAfterTun(
+                reapplyTunIfLate: true,
+                completion: stopAndRestart
+            )
+        } else {
+            stopAndRestart()
+        }
+    }
+
     @objc func healthCheckOnNetworkChange() {
-        ApiRequest.getMergedProxyData {
-            proxyResp in
+        guard !isTerminating else { return }
+        ApiRequest.getMergedProxyData { [weak self] proxyResp in
+            guard self?.isTerminating == false else { return }
             guard let proxyResp = proxyResp else { return }
 
             var providers = Set<ClashProxyName>()
@@ -1268,6 +2768,10 @@ extension AppDelegate {
 
     @IBAction func actionToggleEnhancedMode(_ sender: NSMenuItem?) {
         let newState = !Settings.enhancedMode
+        guard newState || !Settings.claudeProxyLockEnabled else {
+            presentClaudeProxyLockProtectionNotice()
+            return
+        }
         guard ConfigManager.shared.isRunning else { return }
         enhancedModeMenuItem.isEnabled = false
 
@@ -1278,7 +2782,7 @@ extension AppDelegate {
                 Settings.enhancedMode = !newState
                 self.enhancedModeMenuItem.state = !newState ? .on : .off
                 Logger.log("Enhanced Mode toggle failed: \(error)", level: .error)
-                NSUserNotificationCenter.default.postConfigErrorNotice(msg: error)
+                self.presentEnhancedModeToggleError(error, attemptedEnable: newState)
             } else {
                 Settings.enhancedMode = newState
                 self.enhancedModeMenuItem.state = newState ? .on : .off
@@ -1295,6 +2799,52 @@ extension AppDelegate {
             enableEnhancedMode(completion: completion)
         } else {
             disableEnhancedMode(completion: completion)
+        }
+    }
+
+    private func presentEnhancedModeToggleError(_ error: String, attemptedEnable: Bool) {
+        let alert = NSAlert()
+        alert.alertStyle = .critical
+        alert.icon = NSApp.applicationIconImage
+        alert.messageText = NSLocalizedString(
+            attemptedEnable ? "Failed to Start Enhanced Mode" : "Failed to Stop Enhanced Mode",
+            comment: ""
+        )
+
+        let errorPrefix = "error:"
+        let normalizedError = (error.hasPrefix(errorPrefix)
+            ? String(error.dropFirst(errorPrefix.count))
+            : error)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let invalidExcludePrefix = "invalid TUN route exclude entries:"
+        let invalidExcludeEntries: String?
+        if normalizedError.hasPrefix(invalidExcludePrefix) {
+            invalidExcludeEntries = String(normalizedError.dropFirst(invalidExcludePrefix.count))
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            invalidExcludeEntries = nil
+        }
+
+        let shouldOfferSettings = invalidExcludeEntries?.isEmpty == false
+        if let invalidExcludeEntries, shouldOfferSettings {
+            alert.informativeText = String(
+                format: NSLocalizedString(
+                    "TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list.",
+                    comment: ""
+                ),
+                invalidExcludeEntries
+            )
+            alert.addButton(withTitle: NSLocalizedString("Open Settings", comment: ""))
+            alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
+        } else {
+            alert.informativeText = normalizedError
+            alert.addButton(withTitle: NSLocalizedString("OK", comment: ""))
+        }
+
+        NSApp.activate(ignoringOtherApps: true)
+        let response = alert.runModal()
+        if shouldOfferSettings, response == .alertFirstButtonReturn {
+            actionMoreSetting(alert)
         }
     }
 
@@ -1321,11 +2871,20 @@ extension AppDelegate {
     }
 
     @objc func actionTurnOffAllProxyModes(_ sender: Any?) {
+        guard !Settings.claudeProxyLockEnabled else {
+            presentClaudeProxyLockProtectionNotice()
+            return
+        }
         if ConfigManager.shared.proxyPortAutoSet || ConfigManager.shared.isProxySetByOtherVariable.value {
             ConfigManager.shared.isProxySetByOtherVariable.accept(false)
-            ConfigManager.shared.proxyPortAutoSet = false
-            SystemProxyManager.shared.disableProxy()
-            proxySettingMenuItem.state = .off
+            SystemProxyManager.shared.disableProxy(result: { success in
+                guard success else {
+                    Logger.log("turning off system proxy failed; retaining proxy state for retry", level: .error)
+                    return
+                }
+                ConfigManager.shared.proxyPortAutoSet = false
+                self.proxySettingMenuItem.state = .off
+            })
         }
 
         guard Settings.enhancedMode || ConfigManager.shared.isEnhancedModeActive else {
@@ -1455,6 +3014,190 @@ extension AppDelegate {
         bypassChineseAppsMenuItem = item
     }
 
+    private func installClaudeProxyLockMenuItem() {
+        let item = NSMenuItem(
+            title: NSLocalizedString("Claude Proxy Lock…", comment: ""),
+            action: #selector(showClaudeProxyLockSettings(_:)),
+            keyEquivalent: ""
+        )
+        item.target = self
+        item.state = Settings.claudeProxyLockEnabled ? .on : .off
+        item.toolTip = NSLocalizedString(
+            "Pin Claude traffic to one proxy and block fallback",
+            comment: ""
+        )
+        let parentMenu = enhancedModeMenuItem.menu ?? statusMenu
+        let anchor = bypassChineseAppsMenuItem ?? advancedTunMenuItem ?? enhancedModeMenuItem
+        let insertIndex = (parentMenu?.index(of: anchor!) ?? -1) + 1
+        if let menu = parentMenu, insertIndex > 0 {
+            menu.insertItem(item, at: insertIndex)
+        } else {
+            statusMenu.addItem(item)
+        }
+        claudeProxyLockMenuItem = item
+    }
+
+    @objc private func showClaudeProxyLockSettings(_ sender: Any?) {
+        guard ConfigManager.shared.isRunning else {
+            offerClaudeProxyLockDisableIfNeeded(
+                message: NSLocalizedString("Proxy core is not running.", comment: "")
+            )
+            return
+        }
+
+        ApiRequest.getMergedProxyData { [weak self] response in
+            guard let self = self else { return }
+            guard let response = response else {
+                self.offerClaudeProxyLockDisableIfNeeded(
+                    message: NSLocalizedString("Could not load the proxy list.", comment: "")
+                )
+                return
+            }
+
+            let targets = response.proxies
+                .filter {
+                    !ClashProxyType.isProxyGroup($0) &&
+                        !ClashProxyType.isBuiltInProxy($0) &&
+                        $0.hidden != true &&
+                        ClaudeProxyLockPolicy.isValidTarget($0.name)
+                }
+                .map(\.name)
+                .sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+
+            guard !targets.isEmpty else {
+                self.offerClaudeProxyLockDisableIfNeeded(
+                    message: NSLocalizedString("No eligible proxy nodes are available.", comment: "")
+                )
+                return
+            }
+
+            let alert = NSAlert()
+            alert.messageText = NSLocalizedString("Claude Proxy Lock", comment: "")
+            alert.informativeText = NSLocalizedString(
+                "Choose one concrete proxy node. ClashFX will force Claude Desktop, Claude Code, and Anthropic web domains through it in Enhanced Mode. If that node or ClashFX fails, protected traffic is blocked instead of falling back. While enabled, Rule mode, Enhanced Mode, and System Proxy cannot be turned off. Browser extensions, manually configured app proxies, and software that ignores macOS networking settings remain outside this protection.",
+                comment: ""
+            )
+
+            let popup = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 380, height: 26))
+            popup.addItems(withTitles: targets)
+            if let index = targets.firstIndex(of: Settings.claudeProxyLockTarget) {
+                popup.selectItem(at: index)
+            }
+            alert.accessoryView = popup
+            alert.addButton(withTitle: NSLocalizedString(
+                Settings.claudeProxyLockEnabled ? "Apply Lock" : "Enable Lock",
+                comment: ""
+            ))
+            if Settings.claudeProxyLockEnabled {
+                alert.addButton(withTitle: NSLocalizedString("Disable Lock", comment: ""))
+            }
+            alert.addButton(withTitle: NSLocalizedString("Cancel", comment: ""))
+
+            NSApp.activate(ignoringOtherApps: true)
+            let result = alert.runModal()
+            if result == .alertFirstButtonReturn, let target = popup.selectedItem?.title {
+                self.applyClaudeProxyLock(enabled: true, target: target)
+            } else if Settings.claudeProxyLockEnabled, result == .alertSecondButtonReturn {
+                self.applyClaudeProxyLock(enabled: false, target: Settings.claudeProxyLockTarget)
+            }
+        }
+    }
+
+    private func offerClaudeProxyLockDisableIfNeeded(message: String) {
+        guard Settings.claudeProxyLockEnabled else {
+            NSAlert.alert(with: message)
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = NSLocalizedString("Claude Proxy Lock", comment: "")
+        alert.informativeText = message
+        alert.addButton(withTitle: NSLocalizedString("Disable Lock", comment: ""))
+        alert.addButton(withTitle: NSLocalizedString("Cancel", comment: ""))
+        NSApp.activate(ignoringOtherApps: true)
+        if alert.runModal() == .alertFirstButtonReturn {
+            applyClaudeProxyLock(enabled: false, target: Settings.claudeProxyLockTarget)
+        }
+    }
+
+    private func applyClaudeProxyLock(enabled: Bool, target: String) {
+        Settings.claudeProxyLockTarget = target
+        Settings.claudeProxyLockEnabled = enabled
+        claudeProxyLockMenuItem?.state = enabled ? .on : .off
+
+        if enabled {
+            ConfigManager.selectOutBoundMode = .rule
+            Settings.enhancedMode = true
+        }
+
+        if ConfigManager.shared.isEnhancedModeActive {
+            disableEnhancedMode { [weak self] error in
+                guard let self = self else { return }
+                guard error == nil else {
+                    self.presentClaudeProxyLockApplyError(error!)
+                    return
+                }
+                if enabled {
+                    self.enableClaudeProxyLockProtection()
+                } else {
+                    Settings.enhancedMode = false
+                    self.updateConfig(showNotification: false)
+                }
+            }
+        } else if enabled {
+            enableClaudeProxyLockProtection()
+        } else {
+            updateConfig(showNotification: false)
+        }
+    }
+
+    private func enableClaudeProxyLockProtection() {
+        enableEnhancedMode { [weak self] error in
+            guard let self = self else { return }
+            if let error = error {
+                self.presentClaudeProxyLockApplyError(error)
+                return
+            }
+            Settings.enhancedMode = true
+            self.enhancedModeMenuItem.state = .on
+            self.switchProxyMode(mode: .rule, source: .menu)
+            self.enableSystemProxyForClaudeLock()
+            self.scheduleEnhancedModePostToggleRefresh()
+        }
+    }
+
+    private func enableSystemProxyForClaudeLock() {
+        let config = ConfigManager.shared.currentConfig
+        SystemProxyManager.shared.enableProxy(
+            port: config?.usedHttpPort ?? 0,
+            socksPort: config?.usedSocksPort ?? 0,
+            replacingExternalProxy: ConfigManager.shared.isProxySetByOtherVariable.value
+        ) { success in
+            guard success else {
+                AppDelegate.shared.presentClaudeProxyLockApplyError(
+                    NSLocalizedString("Could not enable System Proxy.", comment: "")
+                )
+                return
+            }
+            ConfigManager.shared.isProxySetByOtherVariable.accept(false)
+            ConfigManager.shared.proxyPortAutoSet = true
+        }
+    }
+
+    private func presentClaudeProxyLockProtectionNotice() {
+        NSAlert.alert(with: NSLocalizedString(
+            "Claude Proxy Lock is protecting this setting. Disable the lock first.",
+            comment: ""
+        ))
+    }
+
+    private func presentClaudeProxyLockApplyError(_ error: String) {
+        Logger.log("Claude Proxy Lock apply failed: \(error)", level: .error)
+        NSAlert.alert(with: String(
+            format: NSLocalizedString("Claude Proxy Lock could not be fully applied: %@", comment: ""),
+            error
+        ))
+    }
+
     @objc func actionToggleBypassChineseApps(_ sender: NSMenuItem) {
         let newState = !Settings.bypassChineseApps
         Settings.bypassChineseApps = newState
@@ -1541,6 +3284,7 @@ extension AppDelegate {
         // re-picks the controller port (stable 19090, or a fresh free port if it
         // is occupied by a stale core). This absorbs transient port races and
         // leftover mihomo_core processes that would otherwise fail the launch.
+        didRestartHelperDuringEnhancedLaunch = false
         attemptEnableEnhancedMode(attemptsLeft: 1, alreadySuspended: false, completion: completion)
     }
 
@@ -1563,11 +3307,12 @@ extension AppDelegate {
         ConfigManager.getConfigPath(configName: selectedConfigName) { selectedConfigPath in
             DispatchQueue.global(qos: .userInitiated).async { [weak self] in
                 guard let self = self else { return }
-                let runtimeConfigPath = self.writeRuntimePatchedConfigIfNeeded(
+                let runtimePatch = self.writeRuntimePatchedConfigIfNeeded(
                     for: selectedConfigName,
                     sourcePath: selectedConfigPath,
                     includeRulePatch: false
-                ) ?? selectedConfigPath
+                )
+                let runtimeConfigPath = runtimePatch.path ?? selectedConfigPath
 
                 if Settings.enhancedModeUseCustomConfig {
                     let launchInfo = self.readCustomEnhancedModeLaunchInfo(configPath: runtimeConfigPath)
@@ -1583,10 +3328,11 @@ extension AppDelegate {
                     return
                 }
 
+                let tunRouteExcludes = self.mergedTunRouteExcludeList(runtimePatch.routeExcludeEntries)
                 let writeResult = clashWriteEnhancedConfig(
                     runtimeConfigPath.goStringBuffer(),
                     tempConfigPath.goStringBuffer(),
-                    Settings.normalizeAndPersistTunRouteExcludeList().joined(separator: ",").goStringBuffer(),
+                    tunRouteExcludes.goStringBuffer(),
                     GoUint32(Settings.tunMTU),
                     Settings.tunInterfaceName.goStringBuffer(),
                     Settings.bypassChineseApps ? 1 : 0
@@ -1700,6 +3446,7 @@ extension AppDelegate {
                     return
                 }
 
+                self.logExternalCoreLaunchStatus(using: helper)
                 ConfigManager.shared.apiPort = port
                 ConfigManager.shared.apiSecret = secret
                 ConfigManager.shared.isEnhancedModeActive = true
@@ -1721,8 +3468,9 @@ extension AppDelegate {
                         Logger.log("External core not ready, regenerating config and retrying (\(attemptsLeft) left)", level: .warning)
                         ConfigManager.shared.isEnhancedModeActive = false
                         self.refreshStatusItemViewStatus()
-                        helper.stopMihomoCore { _ in
-                            DispatchQueue.main.async {
+                        self.prepareHelperForEnhancedModeRetry(helper: helper) {
+                            DispatchQueue.main.async { [weak self] in
+                                guard let self = self else { return }
                                 self.attemptEnableEnhancedMode(attemptsLeft: attemptsLeft - 1, alreadySuspended: true, completion: completion)
                             }
                         }
@@ -1742,6 +3490,167 @@ extension AppDelegate {
                     }
                 }
             }
+        }
+    }
+
+    private func logExternalCoreLaunchStatus(using helper: ProxyConfigRemoteProcessProtocol) {
+        let invocation: Void? = helper.getMihomoCoreStatus? { optionalStatus in
+            let status = optionalStatus ?? [:]
+            let launchID = status["launchID"] as? String ?? "unknown"
+            let pid = (status["pid"] as? NSNumber)?.intValue ?? 0
+            let logPath = status["logPath"] as? String ?? "unknown"
+            let logBytes = (status["logBytes"] as? NSNumber)?.uint64Value ?? 0
+            Logger.log(
+                "External core launched: id=\(launchID) pid=\(pid) " +
+                    "log=\(logPath) initialBytes=\(logBytes)"
+            )
+        }
+        if invocation == nil {
+            Logger.log(
+                "Installed helper does not expose external-core launch metadata",
+                level: .warning
+            )
+        }
+    }
+
+    private func captureExternalCoreDiagnostic(
+        reason: String,
+        completion: @escaping () -> Void
+    ) {
+        guard let helper = PrivilegedHelperManager.shared.helper() else {
+            Logger.log(
+                "Unable to capture external-core diagnostic: helper unavailable",
+                level: .warning
+            )
+            completion()
+            return
+        }
+
+        logExternalCoreLaunchStatus(using: helper)
+        var didFinish = false
+        let finish: () -> Void = {
+            guard !didFinish else { return }
+            didFinish = true
+            completion()
+        }
+        let invocation: Void? = helper.captureMihomoCoreDiagnostic?(withReason: reason) { result in
+            DispatchQueue.main.async {
+                if let result, result.hasPrefix("error:") {
+                    Logger.log(
+                        "External-core diagnostic failed: \(result)",
+                        level: .warning
+                    )
+                } else {
+                    Logger.log(
+                        "External-core diagnostic saved: \(result ?? "unknown path")",
+                        level: .error
+                    )
+                }
+                finish()
+            }
+        }
+        if invocation == nil {
+            Logger.log(
+                "Installed helper does not support external-core process sampling",
+                level: .warning
+            )
+            finish()
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.enhancedModeDiagnosticTimeout) {
+            guard !didFinish else { return }
+            Logger.log(
+                "External-core diagnostic timed out; continuing recovery",
+                level: .warning
+            )
+            finish()
+        }
+    }
+
+    private func prepareHelperForEnhancedModeRetry(
+        helper: ProxyConfigRemoteProcessProtocol,
+        completion: @escaping () -> Void
+    ) {
+        guard !didRestartHelperDuringEnhancedLaunch else {
+            stopExternalCoreForRetry(helper: helper, completion: completion)
+            return
+        }
+
+        didRestartHelperDuringEnhancedLaunch = true
+        var didFinishRequest = false
+        let finishRequest: (String?) -> Void = { error in
+            guard !didFinishRequest else { return }
+            didFinishRequest = true
+            if let error {
+                Logger.log(
+                    "Helper host restart reported an error: \(error)",
+                    level: .warning
+                )
+            } else {
+                Logger.log(
+                    "Restarted helper host before retrying the external core",
+                    level: .warning
+                )
+            }
+            PrivilegedHelperManager.shared.resetConnection()
+            DispatchQueue.main.asyncAfter(
+                deadline: .now() + Self.enhancedModeHelperRestartDelay,
+                execute: completion
+            )
+        }
+        let invocation: Void? = helper.restartMihomoCoreHost? { error in
+            DispatchQueue.main.async {
+                finishRequest(error)
+            }
+        }
+        if invocation == nil {
+            Logger.log(
+                "Installed helper does not support a host restart; stopping only",
+                level: .warning
+            )
+            stopExternalCoreForRetry(helper: helper, completion: completion)
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.enhancedModeHelperRequestTimeout) {
+            guard !didFinishRequest else { return }
+            Logger.log(
+                "Helper host restart request timed out; reconnecting before retry",
+                level: .warning
+            )
+            finishRequest("request timed out")
+        }
+    }
+
+    private func stopExternalCoreForRetry(
+        helper: ProxyConfigRemoteProcessProtocol,
+        completion: @escaping () -> Void
+    ) {
+        var didFinish = false
+        let finish: () -> Void = {
+            guard !didFinish else { return }
+            didFinish = true
+            completion()
+        }
+        helper.stopMihomoCore { error in
+            DispatchQueue.main.async {
+                if let error {
+                    Logger.log(
+                        "Failed stopping external core before retry: \(error)",
+                        level: .warning
+                    )
+                }
+                finish()
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.enhancedModeHelperRequestTimeout) {
+            guard !didFinish else { return }
+            Logger.log(
+                "Stopping external core timed out; continuing bounded retry",
+                level: .warning
+            )
+            finish()
         }
     }
 
@@ -1767,6 +3676,13 @@ extension AppDelegate {
 
                 if listenersUp {
                     Logger.log("External core API + listeners ready on port \(port)")
+                    self.enhancedModeHealthGraceUntil = Date().addingTimeInterval(
+                        Self.enhancedModeHealthGracePeriod
+                    )
+                    self.consecutiveEnhancedModeHealthFailures = 0
+                    self.consecutiveEnhancedModeDataPlaneFailures = 0
+                    self.enhancedModeRuntimeHealthSummary =
+                        "waiting for post-start data-plane health check"
                     ready(true)
                 } else if retriesLeft > 0 {
                     Logger.log("Waiting for external core listeners (\(retriesLeft) retries left)...", level: .debug)
@@ -1775,7 +3691,11 @@ extension AppDelegate {
                     }
                 } else {
                     Logger.log("External core listeners not ready after all retries", level: .error)
-                    ready(false)
+                    self.captureExternalCoreDiagnostic(
+                        reason: "API/listeners not ready on controller port \(port)"
+                    ) {
+                        ready(false)
+                    }
                 }
             }
         }.resume()
@@ -1826,44 +3746,88 @@ extension AppDelegate {
         }
     }
 
-    private func checkTunInterface() {
+    private func tunInterfaceStates() -> [TunInterfaceState] {
         var ifaddrPtr: UnsafeMutablePointer<ifaddrs>?
-        guard getifaddrs(&ifaddrPtr) == 0, let firstAddr = ifaddrPtr else { return }
+        guard getifaddrs(&ifaddrPtr) == 0, let firstAddr = ifaddrPtr else { return [] }
         defer { freeifaddrs(ifaddrPtr) }
 
-        var tunInterfaces: [(name: String, hasIPv4: Bool, ipv4: String)] = []
+        var statesByName: [String: TunInterfaceState] = [:]
         var ptr: UnsafeMutablePointer<ifaddrs>? = firstAddr
         while let addr = ptr {
+            defer { ptr = addr.pointee.ifa_next }
             let name = String(cString: addr.pointee.ifa_name)
-            if name.hasPrefix("utun") {
-                let family = addr.pointee.ifa_addr.pointee.sa_family
-                if family == UInt8(AF_INET) {
-                    var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
-                    getnameinfo(addr.pointee.ifa_addr, socklen_t(addr.pointee.ifa_addr.pointee.sa_len),
-                                &hostname, socklen_t(hostname.count), nil, 0, NI_NUMERICHOST)
-                    let ip = String(cString: hostname)
-                    if let existing = tunInterfaces.firstIndex(where: { $0.name == name }) {
-                        tunInterfaces[existing] = (name, true, ip)
-                    } else {
-                        tunInterfaces.append((name, true, ip))
-                    }
-                } else if !tunInterfaces.contains(where: { $0.name == name }) {
-                    tunInterfaces.append((name, false, ""))
-                }
+            guard name.hasPrefix("utun") else { continue }
+
+            let isUp = (addr.pointee.ifa_flags & UInt32(IFF_UP)) != 0
+            guard let socketAddress = addr.pointee.ifa_addr else {
+                statesByName[name] = TunInterfaceState(name: name, ipv4: nil, isUp: isUp)
+                continue
             }
-            ptr = addr.pointee.ifa_next
+
+            var ipv4 = statesByName[name]?.ipv4
+            if socketAddress.pointee.sa_family == UInt8(AF_INET) {
+                var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                getnameinfo(
+                    socketAddress,
+                    socklen_t(socketAddress.pointee.sa_len),
+                    &hostname,
+                    socklen_t(hostname.count),
+                    nil,
+                    0,
+                    NI_NUMERICHOST
+                )
+                ipv4 = String(cString: hostname)
+            }
+            statesByName[name] = TunInterfaceState(name: name, ipv4: ipv4, isUp: isUp)
         }
 
-        for iface in tunInterfaces {
-            if iface.hasIPv4 {
-                Logger.log("TUN interface \(iface.name) has IPv4: \(iface.ipv4)")
+        return statesByName.values.sorted { $0.name < $1.name }
+    }
+
+    private func hasUsableEnhancedTunInterface(expectedDevice: String?) -> Bool {
+        let activeInterfaces = tunInterfaceStates().filter { $0.isUp && $0.ipv4 != nil }
+        let device = expectedDevice?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+
+        if device.hasPrefix("utun") {
+            return activeInterfaces.contains { $0.name.lowercased() == device }
+        }
+
+        if Settings.enhancedModeUseCustomConfig {
+            return !activeInterfaces.isEmpty
+        }
+
+        return activeInterfaces.contains { $0.ipv4?.hasPrefix("198.18.") == true }
+    }
+
+    private func tunInterfaceSummaryForLog() -> String {
+        let states = tunInterfaceStates()
+        guard !states.isEmpty else { return "none" }
+        return states.map { state in
+            let address = state.ipv4 ?? "no IPv4"
+            return "\(state.name)=\(address),\(state.isUp ? "up" : "down")"
+        }.joined(separator: "; ")
+    }
+
+    private func checkTunInterface() {
+        let states = tunInterfaceStates()
+        for state in states {
+            if let ipv4 = state.ipv4 {
+                Logger.log(
+                    "TUN interface \(state.name) has IPv4: \(ipv4), " +
+                        "state=\(state.isUp ? "up" : "down")"
+                )
             } else {
-                Logger.log("TUN interface \(iface.name) has NO IPv4", level: .warning)
+                Logger.log(
+                    "TUN interface \(state.name) has NO IPv4, " +
+                        "state=\(state.isUp ? "up" : "down")",
+                    level: .warning
+                )
             }
         }
 
-        let mihomoTun = tunInterfaces.first(where: { $0.hasIPv4 && $0.ipv4.hasPrefix("198.18.") })
-        if mihomoTun == nil {
+        if !hasUsableEnhancedTunInterface(expectedDevice: nil) {
             let logPath = kConfigFolderPath + ".mihomo_core.log"
             let coreLog = (try? String(contentsOfFile: logPath, encoding: .utf8)) ?? ""
             let tunError = coreLog.components(separatedBy: "\n")
@@ -1874,7 +3838,7 @@ extension AppDelegate {
                 .post(title: NSLocalizedString("Enhanced Mode", comment: ""),
                       info: "TUN: \(tunError)")
         } else {
-            Logger.log("TUN verified: \(mihomoTun!.name) @ \(mihomoTun!.ipv4)")
+            Logger.log("TUN verified: \(tunInterfaceSummaryForLog())")
         }
     }
 
@@ -1916,7 +3880,10 @@ extension AppDelegate {
         }
     }
 
-    private func restoreDNSAfterTun(completion: (() -> Void)? = nil) {
+    private func restoreDNSAfterTun(
+        reapplyTunIfLate: Bool = false,
+        completion: (() -> Void)? = nil
+    ) {
         guard let helper = PrivilegedHelperManager.shared.helper() else {
             completion?()
             return
@@ -1929,12 +3896,61 @@ extension AppDelegate {
         } else {
             restoreInfo = saved
         }
+
+        Logger.log("TUN DNS restore started")
+        var didFinish = false
+        var didTimeOut = false
+        let finish: (Bool) -> Void = { timedOut in
+            let finishOnMain = {
+                guard !didFinish else { return }
+                didFinish = true
+                didTimeOut = timedOut
+                if timedOut {
+                    Logger.log(
+                        "TUN DNS restore timed out after " +
+                            "\(Self.tunDNSRestoreTimeout)s; continuing recovery",
+                        level: .warning
+                    )
+                }
+                completion?()
+            }
+
+            if Thread.isMainThread {
+                finishOnMain()
+            } else {
+                DispatchQueue.main.async(execute: finishOnMain)
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.tunDNSRestoreTimeout) {
+            finish(true)
+        }
+
         helper.restoreDNS(withSavedInfo: restoreInfo,
                           filterInterface: Settings.filterInterface) { [weak self] _ in
-            self?.savedDNSInfo = [:]
-            helper.flushDNSCache { _ in
-                Logger.log("TUN DNS restored")
-                completion?()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.savedDNSInfo = [:]
+                Logger.log("TUN DNS settings restored")
+
+                if didFinish {
+                    if didTimeOut,
+                       reapplyTunIfLate,
+                       ConfigManager.shared.isEnhancedModeActive {
+                        Logger.log(
+                            "Late TUN DNS restore completed after core recovery; " +
+                                "reapplying TUN DNS",
+                            level: .warning
+                        )
+                        self.overrideDNSForTun()
+                    }
+                    return
+                }
+
+                helper.flushDNSCache { _ in
+                    Logger.log("TUN DNS cache flushed")
+                    finish(false)
+                }
             }
         }
     }
@@ -1989,14 +4005,48 @@ extension AppDelegate {
         return []
     }
 
-    private func cleanupStaleMihomoCoreOnLaunch() {
-        guard Settings.enhancedMode else { return }
+    private func cleanupStaleMihomoCoreOnLaunch(completion: @escaping () -> Void) {
+        guard Settings.enhancedMode else {
+            completion()
+            return
+        }
+        guard !didCompleteStaleEnhancedCoreCleanup else {
+            completion()
+            return
+        }
         Logger.log("Cleanup stale mihomo_core from previous session", level: .info)
-        guard let binaryPath = Bundle.main.path(forResource: "mihomo_core", ofType: nil) else { return }
-        let semaphore = DispatchSemaphore(value: 0)
+        var didFinish = false
+        let finish: (Bool) -> Void = { [weak self] timedOut in
+            DispatchQueue.main.async {
+                guard !didFinish else { return }
+                didFinish = true
+                if timedOut {
+                    Logger.log(
+                        "Stale mihomo_core cleanup timed out; continuing restore",
+                        level: .warning
+                    )
+                }
+                self?.didCompleteStaleEnhancedCoreCleanup = true
+                Logger.log("Stale mihomo_core cleanup finished")
+                completion()
+            }
+        }
+        guard let binaryPath = Bundle.main.path(forResource: "mihomo_core", ofType: nil) else {
+            finish(false)
+            return
+        }
         guard let helper = PrivilegedHelperManager.shared.helper(failture: {
-            semaphore.signal()
-        }) else { return }
+            finish(false)
+        }) else {
+            finish(false)
+            return
+        }
+
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Self.staleEnhancedCoreCleanupTimeout
+        ) {
+            finish(true)
+        }
 
         helper.cleanupMihomoCore(
             withBinaryPath: binaryPath,
@@ -2006,14 +4056,35 @@ extension AppDelegate {
             if let error = error {
                 Logger.log("Stale mihomo_core cleanup failed: \(error)", level: .warning)
             }
-            semaphore.signal()
+            finish(false)
         }
-        _ = semaphore.wait(timeout: .now() + 3.0)
     }
 
     private func restoreEnhancedModeIfNeeded() {
         guard Settings.enhancedMode else { return }
-        restoreEnhancedMode(attemptsLeft: Self.enhancedModeRestoreMaxAttempts)
+        let prepareAndRestore = { [weak self] in
+            guard let self else { return }
+            self.cleanupStaleMihomoCoreOnLaunch { [weak self] in
+                self?.restoreEnhancedMode(
+                    attemptsLeft: Self.enhancedModeRestoreMaxAttempts
+                )
+            }
+        }
+
+        if PrivilegedHelperManager.shared.isHelperCheckFinished.value {
+            prepareAndRestore()
+            return
+        }
+
+        Logger.log("Waiting for helper before Enhanced Mode restore")
+        PrivilegedHelperManager.shared.isHelperCheckFinished
+            .filter { $0 }
+            .take(1)
+            .observe(on: MainScheduler.instance)
+            .subscribe(onNext: { _ in
+                prepareAndRestore()
+            })
+            .disposed(by: disposeBag)
     }
 
     private func restoreEnhancedMode(attemptsLeft: Int) {
@@ -2043,6 +4114,11 @@ extension AppDelegate {
             return
         }
 
+        guard didCompleteStaleEnhancedCoreCleanup else {
+            retryOrFail(NSLocalizedString("Helper not available", comment: ""))
+            return
+        }
+
         enhancedModeMenuItem.isEnabled = false
         enableEnhancedMode { [weak self] error in
             guard let self = self else { return }
@@ -2059,9 +4135,13 @@ extension AppDelegate {
 
     private func finishFailedEnhancedModeRestore(error: String) {
         Settings.enhancedMode = false
+        ConfigManager.shared.isEnhancedModeActive = false
+        enhancedModeMenuItem.isEnabled = true
         enhancedModeMenuItem.state = .off
         Logger.log("Failed to restore Enhanced Mode: \(error)", level: .error)
-        scheduleEnhancedModePostToggleRefresh()
+        restoreDNSAfterTun { [weak self] in
+            self?.scheduleEnhancedModePostToggleRefresh()
+        }
     }
 
     @IBAction func actionAllowFromLan(_ sender: NSMenuItem) {
@@ -2089,17 +4169,137 @@ extension AppDelegate {
         default:
             return
         }
-        switchProxyMode(mode: mode)
+        switchProxyMode(mode: mode, source: .menu)
     }
 
-    func switchProxyMode(mode: ClashProxyMode) {
-        let config = ConfigManager.shared.currentConfig?.copy()
-        config?.mode = mode
-        ApiRequest.updateOutBoundMode(mode: mode) { _ in
-            ConfigManager.shared.currentConfig = config
-            ConfigManager.selectOutBoundMode = mode
-            MenuItemFactory.recreateProxyMenuItems()
+    func switchProxyMode(
+        mode: ClashProxyMode,
+        source: OutboundModeChangeSource = .menu
+    ) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in
+                self?.switchProxyMode(mode: mode, source: source)
+            }
+            return
         }
+
+        guard !Settings.claudeProxyLockEnabled || mode == .rule else {
+            presentClaudeProxyLockProtectionNotice()
+            return
+        }
+
+        desiredOutboundMode = mode
+        enqueueOutboundModeChange(
+            mode: mode,
+            source: source,
+            closeConnections: false
+        )
+    }
+
+    private func enqueueOutboundModeChange(
+        mode: ClashProxyMode,
+        source: OutboundModeChangeSource,
+        closeConnections: Bool,
+        completion: ((Bool) -> Void)? = nil
+    ) {
+        outboundModeRequestSequence &+= 1
+        let request = OutboundModeChangeRequest(
+            id: outboundModeRequestSequence,
+            mode: mode,
+            source: source,
+            closeConnections: closeConnections,
+            completion: completion
+        )
+        latestOutboundModeRequestID = request.id
+        outboundModeChangeQueue.append(request)
+        Logger.log(
+            "Queued outbound mode change #\(request.id): " +
+                "source=\(source.rawValue) mode=\(mode.rawValue)"
+        )
+        processNextOutboundModeChange()
+    }
+
+    private func processNextOutboundModeChange() {
+        guard !isOutboundModeChangeInFlight,
+              !outboundModeChangeQueue.isEmpty
+        else {
+            return
+        }
+
+        let request = outboundModeChangeQueue.removeFirst()
+        isOutboundModeChangeInFlight = true
+        ApiRequest.updateOutBoundMode(mode: request.mode) { [weak self] success in
+            DispatchQueue.main.async {
+                self?.finishOutboundModeChange(request, success: success)
+            }
+        }
+    }
+
+    private func finishOutboundModeChange(
+        _ request: OutboundModeChangeRequest,
+        success: Bool
+    ) {
+        isOutboundModeChangeInFlight = false
+
+        guard request.id == latestOutboundModeRequestID,
+              outboundModeChangeQueue.isEmpty
+        else {
+            Logger.log(
+                "Finished superseded outbound mode change #\(request.id): " +
+                    "source=\(request.source.rawValue) mode=\(request.mode.rawValue) " +
+                    "success=\(success)",
+                level: success ? .debug : .warning
+            )
+            request.completion?(success)
+            processNextOutboundModeChange()
+            return
+        }
+
+        if success {
+            ConfigManager.selectOutBoundMode = request.mode
+            let config = ConfigManager.shared.currentConfig?.copy()
+            config?.mode = request.mode
+            ConfigManager.shared.currentConfig = config
+            desiredOutboundMode = nil
+            pendingOutboundModeVerification = (
+                requestID: request.id,
+                mode: request.mode,
+                source: request.source
+            )
+            if request.closeConnections {
+                ConnectionManager.closeAllConnection()
+            }
+            Logger.log(
+                "Core accepted outbound mode change #\(request.id): " +
+                    "source=\(request.source.rawValue) mode=\(request.mode.rawValue)"
+            )
+            MenuItemFactory.recreateProxyMenuItems()
+        } else {
+            desiredOutboundMode = nil
+            pendingOutboundModeVerification = nil
+            Logger.log(
+                "Outbound mode change failed #\(request.id): " +
+                    "source=\(request.source.rawValue) mode=\(request.mode.rawValue)",
+                level: .error
+            )
+            notifyOutboundModeChangeFailure(mode: request.mode)
+        }
+
+        request.completion?(success)
+        syncConfig()
+    }
+
+    private func notifyOutboundModeChangeFailure(mode: ClashProxyMode) {
+        let format = NSLocalizedString(
+            "Could not switch to %@. ClashFX kept the core's current proxy mode.",
+            comment: ""
+        )
+        NSUserNotificationCenter.default.post(
+            title: NSLocalizedString("Proxy Mode", comment: ""),
+            info: String(format: format, mode.name),
+            identifier: "outboundModeChangeFailure",
+            notiOnly: false
+        )
     }
 
     @IBAction func actionShowNetSpeedIndicator(_ sender: NSMenuItem) {
@@ -2107,28 +4307,47 @@ extension AppDelegate {
     }
 
     @IBAction func actionSetSystemProxy(_ sender: Any?) {
-        var canSaveProxy = true
+        let wouldDisable = ConfigManager.shared.proxyPortAutoSet &&
+            !ConfigManager.shared.isProxySetByOtherVariable.value
+        guard !Settings.claudeProxyLockEnabled || !wouldDisable else {
+            presentClaudeProxyLockProtectionNotice()
+            return
+        }
         if ConfigManager.shared.proxyPortAutoSet && ConfigManager.shared.proxyShouldPaused.value {
-            ConfigManager.shared.proxyPortAutoSet = false
+            disableSystemProxyFromUserAction()
         } else if ConfigManager.shared.isProxySetByOtherVariable.value {
-            // should reset proxy to clashx
+            enableSystemProxyFromUserAction(replacingExternalProxy: true)
+        } else if ConfigManager.shared.proxyPortAutoSet {
+            disableSystemProxyFromUserAction()
+        } else {
+            enableSystemProxyFromUserAction()
+        }
+    }
+
+    private func enableSystemProxyFromUserAction(replacingExternalProxy: Bool = false) {
+        let config = ConfigManager.shared.currentConfig
+        SystemProxyManager.shared.enableProxy(
+            port: config?.usedHttpPort ?? 0,
+            socksPort: config?.usedSocksPort ?? 0,
+            replacingExternalProxy: replacingExternalProxy
+        ) { success in
+            guard success else {
+                Logger.log("user-requested system proxy enable failed; leaving menu state unchanged", level: .error)
+                return
+            }
             ConfigManager.shared.isProxySetByOtherVariable.accept(false)
             ConfigManager.shared.proxyPortAutoSet = true
-            // clear then reset.
-            canSaveProxy = false
-            SystemProxyManager.shared.disableProxy(port: 0, socksPort: 0, forceDisable: true)
-        } else {
-            ConfigManager.shared.proxyPortAutoSet = !ConfigManager.shared.proxyPortAutoSet
         }
+    }
 
-        if ConfigManager.shared.proxyPortAutoSet {
-            if canSaveProxy {
-                SystemProxyManager.shared.saveProxy()
+    private func disableSystemProxyFromUserAction() {
+        SystemProxyManager.shared.disableProxy(result: { success in
+            guard success else {
+                Logger.log("user-requested system proxy disable failed; retaining menu state for retry", level: .error)
+                return
             }
-            SystemProxyManager.shared.enableProxy()
-        } else {
-            SystemProxyManager.shared.disableProxy()
-        }
+            ConfigManager.shared.proxyPortAutoSet = false
+        })
     }
 
     @IBAction func actionCopyExportCommand(_ sender: NSMenuItem) {
@@ -2154,52 +4373,132 @@ extension AppDelegate {
     private func runSpeedTest(benchmarkURL: String,
                               timeout: Int,
                               showNotifications: Bool) {
-        if isSpeedTesting {
-            if showNotifications {
-                NSUserNotificationCenter.default.postSpeedTestingNotice()
-            }
+        guard let session = beginSpeedTest(showNotifications: showNotifications) else {
             return
         }
-        if showNotifications {
-            NSUserNotificationCenter.default.postSpeedTestBeginNotice()
-        }
+        let presentationSessionIdentifier = UUID()
 
-        isSpeedTesting = true
-
-        ApiRequest.getMergedProxyData { [weak self] resp in
-            guard let self = self else { return }
-            guard let resp = resp else {
-                self.finishSpeedTest(showNotifications: showNotifications)
-                return
-            }
-
-            let group = DispatchGroup()
-
-            for (name, _) in resp.enclosingProviderResp?.providers ?? [:] {
-                group.enter()
-                ApiRequest.healthCheck(proxy: name) {
-                    group.leave()
+        ApiRequest.getMergedProxyData(session: session, timeout: 10) { [weak self] resp in
+            DispatchQueue.main.async {
+                guard let self,
+                      !session.isCancelled,
+                      self.isActiveBenchmarkSession(session),
+                      let resp else {
+                    self?.finishSpeedTest(
+                        session: session,
+                        showNotifications: showNotifications
+                    )
+                    return
                 }
-            }
 
-            for p in resp.proxiesMap["GLOBAL"]?.all ?? [] {
-                group.enter()
-                ApiRequest.getProxyDelay(proxyName: p, benchmarkURL: benchmarkURL, timeout: timeout) { _ in
-                    group.leave()
-                }
-            }
-            group.notify(queue: DispatchQueue.main) {
-                self.finishSpeedTest(showNotifications: showNotifications)
+                ApiRequest.benchmarkLeafProxies(
+                    in: resp,
+                    benchmarkURL: benchmarkURL,
+                    timeout: timeout,
+                    session: session,
+                    result: { [weak self] result in
+                        DispatchQueue.main.async {
+                            guard let self,
+                                  !session.isCancelled,
+                                  self.isActiveBenchmarkSession(session) else { return }
+                            guard result.outcome != .cancelled else { return }
+                            let state = result.outcome.rowState(name: result.identity.proxyName)
+                            GlobalLeafBenchmarkPresentationStore.publish(
+                                GlobalLeafBenchmarkPresentation(
+                                    identity: result.identity,
+                                    benchmarkURL: result.benchmarkURL,
+                                    sessionIdentifier: presentationSessionIdentifier,
+                                    rowState: state
+                                )
+                            )
+                        }
+                    },
+                    completion: { [weak self] in
+                        DispatchQueue.main.async {
+                            guard let self,
+                                  self.isActiveBenchmarkSession(session) else { return }
+                            self.finishSpeedTest(
+                                session: session,
+                                showNotifications: showNotifications
+                            )
+                        }
+                    }
+                )
             }
         }
     }
 
-    private func finishSpeedTest(showNotifications: Bool) {
-        isSpeedTesting = false
-        MenuItemFactory.refreshExistingMenuItems()
+    func beginSpeedTest(showNotifications: Bool) -> ApiRequest.BenchmarkSession? {
+        guard !isConfigUpdating else { return nil }
+        guard !isWakeEnhancedModeRestarting else {
+            Logger.log(
+                "Benchmark blocked while Enhanced Mode recovery is in progress",
+                level: .warning
+            )
+            NSUserNotificationCenter.default.post(
+                title: NSLocalizedString("Benchmark", comment: ""),
+                info: NSLocalizedString(
+                    "Enhanced Mode is recovering. Please try again shortly.",
+                    comment: ""
+                )
+            )
+            return nil
+        }
+        guard !isSpeedTesting else {
+            if showNotifications {
+                NSUserNotificationCenter.default.postSpeedTestingNotice()
+            }
+            return nil
+        }
+
+        let session = ApiRequest.BenchmarkSession()
+        activeBenchmarkSession = session
+        isSpeedTesting = true
         if showNotifications {
+            NSUserNotificationCenter.default.postSpeedTestBeginNotice()
+        }
+        return session
+    }
+
+    func finishSpeedTest(
+        session: ApiRequest.BenchmarkSession,
+        showNotifications: Bool,
+        cancelled: Bool = false,
+        refreshMenu: Bool = true
+    ) {
+        dispatchPrecondition(condition: .onQueue(.main))
+        guard activeBenchmarkSession === session else { return }
+        if cancelled {
+            session.cancel()
+        }
+        activeBenchmarkSession = nil
+        isSpeedTesting = false
+        session.terminate()
+        if refreshMenu {
+            MenuItemFactory.refreshExistingMenuItems()
+        }
+        if showNotifications, !session.isCancelled {
             NSUserNotificationCenter.default.postSpeedTestFinishNotice()
         }
+    }
+
+    func isActiveBenchmarkSession(_ session: ApiRequest.BenchmarkSession) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        return activeBenchmarkSession === session
+    }
+
+    func cancelActiveSpeedTest(reason: String, refreshMenu: Bool = true) {
+        guard let session = activeBenchmarkSession else { return }
+        Logger.log(
+            "Cancelling active benchmark before \(reason)",
+            level: .warning
+        )
+        finishSpeedTest(
+            session: session,
+            showNotifications: false,
+            cancelled: true,
+            refreshMenu: refreshMenu
+        )
     }
 
     @IBAction func actionUpdateExternalResource(_ sender: Any) {
@@ -2284,43 +4583,65 @@ extension AppDelegate {
         guard !isRestarting else { return }
         isRestarting = true
         let path = Bundle.main.bundlePath
+        let processIdentifier = ProcessInfo.processInfo.processIdentifier
+        let wasEnhancedModeActive = ConfigManager.shared.isEnhancedModeActive
 
-        if let item = statusItem {
-            NSStatusBar.system.removeStatusItem(item)
+        if let item = statusItem, item.menu != nil {
+            let restartingMenu = NSMenu()
+            let restartingItem = NSMenuItem(
+                title: NSLocalizedString("Restarting…", comment: ""),
+                action: nil,
+                keyEquivalent: ""
+            )
+            restartingItem.isEnabled = false
+            restartingMenu.addItem(restartingItem)
+            item.menu = restartingMenu
         }
 
-        let launchAndExit: () -> Void = {
-            let terminate = {
-                DispatchQueue.main.async {
-                    NSApp.terminate(nil)
+        let launchAfterOldProcessExits: () -> Void = {
+            clashPauseCallbacks()
+            clashSuspendCore()
+
+            let task = Process()
+            task.executableURL = URL(fileURLWithPath: "/bin/sh")
+            task.arguments = [
+                "-c",
+                "while kill -0 \"$1\" 2>/dev/null; do sleep 0.1; done; exec /usr/bin/open \"$2\"",
+                "clashfx-relaunch",
+                String(processIdentifier),
+                path
+            ]
+            do {
+                try task.run()
+                Logger.log(
+                    "ClashFX restart: listeners released; replacement waits for PID \(processIdentifier) to exit"
+                )
+                NSApp.terminate(nil)
+            } catch {
+                Logger.log(
+                    "ClashFX restart: failed to start relaunch helper: \(error.localizedDescription)",
+                    level: .error
+                )
+                self.isRestarting = false
+                clashResumeCallbacks()
+                _ = clashResumeCore()
+                self.statusItem.menu = self.statusMenu
+                if wasEnhancedModeActive, Settings.enhancedMode {
+                    self.restoreEnhancedMode(
+                        attemptsLeft: Self.enhancedModeRestoreMaxAttempts
+                    )
                 }
-            }
-            if #available(macOS 10.15, *) {
-                let url = URL(fileURLWithPath: path)
-                let config = NSWorkspace.OpenConfiguration()
-                config.createsNewApplicationInstance = true
-                NSWorkspace.shared.openApplication(at: url, configuration: config) { _, error in
-                    if let error = error {
-                        Logger.log("ClashFX restart: openApplication failed: \(error.localizedDescription)", level: .error)
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: terminate)
-                }
-            } else {
-                let task = Process()
-                task.launchPath = "/bin/sh"
-                task.arguments = ["-c", "sleep 0.5 && open \"\(path)\""]
-                task.launch()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: terminate)
+                NSAlert.alert(with: error.localizedDescription)
             }
         }
 
         if ConfigManager.shared.isEnhancedModeActive {
             Logger.log("ClashFX restart: cleaning Enhanced Mode before relaunch")
             cleanupEnhancedModeForTermination {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: launchAndExit)
+                launchAfterOldProcessExits()
             }
         } else {
-            launchAndExit()
+            launchAfterOldProcessExits()
         }
     }
 }
@@ -2329,11 +4650,17 @@ extension AppDelegate {
 
 extension AppDelegate: ApiRequestStreamDelegate {
     func didUpdateTraffic(up: Int, down: Int) {
+        let (trafficBytes, overflow) = max(0, up).addingReportingOverflow(max(0, down))
+        latestTrafficBytesPerSecond = overflow ? Int.max : trafficBytes
+        latestTrafficUpdateTime = Date()
         statusItemView.updateSpeedLabel(up: up, down: down)
     }
 
     func didGetLog(log: String, level: String) {
-        Logger.log(log, level: ClashLogLevel(rawValue: level) ?? .unknow)
+        let clashLevel = ClashLogLevel(rawValue: level) ?? .unknow
+        if let recoveryReason = Logger.logCore(log, level: clashLevel) {
+            recoverFromCoreLogFailure(recoveryReason)
+        }
     }
 }
 
@@ -2448,8 +4775,6 @@ extension AppDelegate {
     }
 }
 
-// MARK: crash hanlder
-
 extension AppDelegate {
     func failLaunchProtect() {
         #if DEBUG
@@ -2533,15 +4858,12 @@ extension AppDelegate {
     }
 
     private func restoreSelectedOutboundModeAfterCoreChange(completion: (() -> Void)? = nil) {
-        let mode = ConfigManager.selectOutBoundMode
-        ApiRequest.updateOutBoundMode(mode: mode) { [weak self] success in
-            if success {
-                Logger.log("Restored outbound mode after core change: \(mode.rawValue)")
-                ConnectionManager.closeAllConnection()
-                self?.syncConfig()
-            } else {
-                Logger.log("Failed to restore outbound mode after core change: \(mode.rawValue)", level: .warning)
-            }
+        let mode = desiredOutboundMode ?? ConfigManager.selectOutBoundMode
+        enqueueOutboundModeChange(
+            mode: mode,
+            source: .configReload,
+            closeConnections: true
+        ) { _ in
             completion?()
         }
     }
@@ -2565,6 +4887,11 @@ extension AppDelegate {
 // MARK: NSMenuDelegate
 
 extension AppDelegate: NSMenuDelegate {
+    func menuWillOpen(_ menu: NSMenu) {
+        guard menu === statusMenu else { return }
+        KeyboardShortCutManager.statusMenuWillOpen()
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         ensureMenuTargets(in: menu)
         MenuItemFactory.refreshExistingMenuItems()
@@ -2596,6 +4923,9 @@ extension AppDelegate: NSMenuDelegate {
     func menuDidClose(_ menu: NSMenu) {
         for element in menu.items {
             (element.view as? ProxyGroupMenuHighlightDelegate)?.highlight(item: nil)
+        }
+        if menu === statusMenu {
+            KeyboardShortCutManager.statusMenuDidClose()
         }
     }
 }
@@ -2677,6 +5007,7 @@ extension AppDelegate {
 extension AppDelegate {
     @objc func onTrayMenuSettingsChanged() {
         applyTrayMenuVisibility()
+        refreshSubscriptionStatusMenuItem()
     }
 
     /// Hides or shows dynamic config-switch items and the separator that follows them.

@@ -12,30 +12,62 @@ import RxSwift
 import WebKit
 
 enum WebCacheCleaner {
-    static func clean() {
-        DispatchQueue.global(qos: .utility).async {
-            HTTPCookieStorage.shared.removeCookies(since: Date.distantPast)
-            Logger.log("[WebCacheCleaner] All cookies deleted")
-        }
-        DispatchQueue.main.async {
+    static func clean(completionHandler: @escaping () -> Void = {}) {
+        let cleanup = {
             let store = WKWebsiteDataStore.default()
-            store.fetchDataRecords(ofTypes: WKWebsiteDataStore.allWebsiteDataTypes()) { records in
-                for record in records {
-                    store.removeData(ofTypes: record.dataTypes, for: [record], completionHandler: {})
-                    Logger.log("[WebCacheCleaner] Record \(record) deleted")
-                }
+            let dataTypes = DashboardWebsiteDataPolicy.removableDataTypes(
+                from: WKWebsiteDataStore.allWebsiteDataTypes()
+            )
+            guard !dataTypes.isEmpty else {
+                completionHandler()
+                return
             }
+            store.removeData(ofTypes: dataTypes, modifiedSince: .distantPast) {
+                Logger.log("[WebCacheCleaner] Volatile dashboard caches deleted")
+                completionHandler()
+            }
+        }
+        if Thread.isMainThread {
+            cleanup()
+        } else {
+            DispatchQueue.main.async(execute: cleanup)
         }
     }
 }
 
 class ClashWebViewContoller: NSViewController {
-    let webview: CustomWKWebView = .init()
+    let webview: CustomWKWebView = {
+        let configuration = WKWebViewConfiguration()
+        // `customUserAgent` replaces the complete WebKit UA, which removes the
+        // Safari/WebKit version diagnostics needed for legacy compatibility.
+        // This configuration property appends an app identifier while retaining
+        // the system-provided, version-bearing User-Agent string.
+        configuration.applicationNameForUserAgent = "ClashFX Runtime"
+        return CustomWKWebView(frame: .zero, configuration: configuration)
+    }()
+
     var bridge: JSBridge?
     let disposeBag = DisposeBag()
     let minSize = NSSize(width: 920, height: 580)
 
     let effectView = NSVisualEffectView()
+
+    private static func bundledDashboardCompatibilityJS() -> String? {
+        guard let scriptURL = Bundle.main.url(
+            forResource: "clashfx-compat",
+            withExtension: "js",
+            subdirectory: "DashboardCompatibility"
+        ) else {
+            Logger.log("[dashboard] compatibility script missing", level: .warning)
+            return nil
+        }
+        do {
+            return try String(contentsOf: scriptURL, encoding: .utf8)
+        } catch {
+            Logger.log("[dashboard] compatibility script unreadable: \(error)", level: .warning)
+            return nil
+        }
+    }
 
     private static let apiGuardJS: String = """
     (function() {
@@ -78,29 +110,133 @@ class ClashWebViewContoller: NSViewController {
     })();
     """
 
-    private static let hideUpgradeJS: String = """
+    private static let dashboardCompatibilityDiagnosticsJS: String = """
     (function() {
-      var HIDE_LABELS = ['GEO Databases', 'Dashboard UI', 'Restart', 'Upgrade'];
-      function hideItems(root) {
-        var labels = root.querySelectorAll('div');
-        for (var i = 0; i < labels.length; i++) {
-          var el = labels[i];
-          if (el.children.length > 0) continue;
-          var txt = el.textContent.trim();
-          for (var j = 0; j < HIDE_LABELS.length; j++) {
-            if (txt.indexOf(HIDE_LABELS[j]) !== -1) {
-              var row = el.parentElement;
-              if (row) row.style.display = 'none';
-              break;
-            }
-          }
-        }
+      var compatibility = window.__CLASHFX_DASHBOARD_COMPAT__;
+      if (!compatibility || typeof compatibility !== 'object') return null;
+      function number(value) {
+        return typeof value === 'number' && isFinite(value) ? Math.max(-9000000000000000, Math.min(9000000000000000, value)) : null;
       }
-      var mo = new MutationObserver(function() { hideItems(document); });
-      mo.observe(document.documentElement, {childList: true, subtree: true});
-      document.addEventListener('DOMContentLoaded', function() { hideItems(document); });
+      function probe(value) {
+        if (!value || typeof value !== 'object') return null;
+        return {
+          red: number(value.red), green: number(value.green), blue: number(value.blue),
+          alpha: number(value.alpha), serialization: String(value.serialization || '').slice(0, 32)
+        };
+      }
+      var ua = String(navigator.userAgent || '').slice(0, 512);
+      var safari = ua.match(/Version\\/(\\d+(?:\\.\\d+){0,2}).*Safari\\//i);
+      var webKit = ua.match(/AppleWebKit\\/(\\d+(?:\\.\\d+){0,4})/i);
+      return JSON.stringify({
+        compatibility: {
+          revision: String(compatibility.revision || '').slice(0, 64),
+          syntaxSupport: compatibility.syntaxSupport === true,
+          renderedProbe: compatibility.renderedProbe === true,
+          expectedProbe: probe(compatibility.expectedProbe),
+          observedProbe: probe(compatibility.observedProbe),
+          fallbackInstalled: compatibility.fallbackInstalled === true,
+          themeProbe: compatibility.themeProbe ? {
+            startMs: number(compatibility.themeProbe.startMs),
+            endMs: number(compatibility.themeProbe.endMs),
+            count: number(compatibility.themeProbe.count),
+            durationMs: number(compatibility.themeProbe.durationMs),
+            totalCount: number(compatibility.themeProbe.totalCount),
+            batches: number(compatibility.themeProbe.batches)
+          } : null
+        },
+        safariVersion: safari ? safari[1] : null,
+        webKitVersion: webKit ? webKit[1] : null,
+        normalizedBrowserVersion: safari ? 'Safari ' + safari[1] + (webKit ? ' / WebKit ' + webKit[1] : '') : (webKit ? 'WebKit ' + webKit[1] : null),
+        userAgent: ua
+      });
     })();
     """
+
+    private static func dashboardUpgradePolicyJS(managedMessage: String) -> String {
+        let escapedManagedMessage = managedMessage
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+            .replacingOccurrences(of: "\n", with: "\\n")
+        return """
+        (function() {
+          var MANAGED_MESSAGE = '\(escapedManagedMessage)';
+          var VERSION_PATTERN = /^v?\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?$/;
+          var HIDE_LABELS = ['GEO Databases', 'Dashboard UI', 'Restart', 'Upgrade'];
+          function hideItems(root) {
+            var labels = root.querySelectorAll('div');
+            for (var i = 0; i < labels.length; i++) {
+              var el = labels[i];
+              if (el.children.length > 0) continue;
+              var txt = el.textContent.trim();
+              for (var j = 0; j < HIDE_LABELS.length; j++) {
+                if (txt.indexOf(HIDE_LABELS[j]) !== -1) {
+                  var row = el.parentElement;
+                  if (row) row.style.display = 'none';
+                  break;
+                }
+              }
+            }
+          }
+          function removeUpdateIndicator(button) {
+            var candidates = button.querySelectorAll('span');
+            for (var i = candidates.length - 1; i >= 0; i--) {
+              var candidate = candidates[i];
+              if (candidate.querySelector('.animate-ping')) {
+                candidate.remove();
+              }
+            }
+          }
+          function manageVersionButtons(root) {
+            var buttons = root.querySelectorAll('button');
+            var containers = [];
+            for (var i = 0; i < buttons.length; i++) {
+              var button = buttons[i];
+              var text = button.textContent.trim();
+              var collapsedTitle = button.getAttribute('title') || '';
+              var isExpandedVersion = VERSION_PATTERN.test(text);
+              var isCollapsedVersions = /^UI\\s+v?\\d+\\.\\d+\\.\\d+.*Core\\s+v?\\d+\\.\\d+\\.\\d+/.test(collapsedTitle);
+              if (!isExpandedVersion && !isCollapsedVersions) continue;
+              removeUpdateIndicator(button);
+              button.dataset.clashfxManagedVersion = 'true';
+              button.style.cursor = 'default';
+              button.style.pointerEvents = 'none';
+              var versionText = isCollapsedVersions ? collapsedTitle.split(' — ')[0] : text;
+              button.setAttribute('title', versionText + ' — ' + MANAGED_MESSAGE);
+              button.setAttribute('aria-label', versionText + ' — ' + MANAGED_MESSAGE);
+              if (isExpandedVersion && button.parentElement &&
+                  containers.indexOf(button.parentElement) === -1) {
+                containers.push(button.parentElement);
+              }
+            }
+            for (var j = 0; j < containers.length; j++) {
+              var container = containers[j];
+              var versionButtons = container.querySelectorAll('button[data-clashfx-managed-version="true"]');
+              if (versionButtons.length < 2 ||
+                  container.querySelector('[data-clashfx-managed-note="true"]')) {
+                continue;
+              }
+              var note = document.createElement('div');
+              note.dataset.clashfxManagedNote = 'true';
+              note.textContent = MANAGED_MESSAGE;
+              note.style.fontSize = '11px';
+              note.style.lineHeight = '1.25';
+              note.style.textAlign = 'center';
+              note.style.opacity = '0.6';
+              note.style.padding = '2px 4px 0';
+              container.appendChild(note);
+            }
+          }
+          function applyPolicy() {
+            hideItems(document);
+            manageVersionButtons(document);
+          }
+          var mo = new MutationObserver(applyPolicy);
+          mo.observe(document.documentElement, {childList: true, subtree: true});
+          document.addEventListener('DOMContentLoaded', applyPolicy);
+          applyPolicy();
+        })();
+        """
+    }
 
     private static func metaCubeXDConfigJS(port: String, secret: String) -> String {
         let backendURL = "http://127.0.0.1:\(port)"
@@ -111,6 +247,149 @@ class ClashWebViewContoller: NSViewController {
           defaultBackendURL: '\(escapedBackendURL)',
           defaultBackendSecret: '\(escapedSecret)'
         };
+        """
+    }
+
+    private static func dashboardRulesSnapshotJS(port: String, staleMessage: String) -> String {
+        let backendURL = "http://127.0.0.1:\(port)"
+        let escapedBackendURL = backendURL
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+        let escapedStaleMessage = staleMessage
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "'", with: "\\'")
+            .replacingOccurrences(of: "\n", with: "\\n")
+        return """
+        (function() {
+          var BACKEND_ORIGIN = '\(escapedBackendURL)';
+          var STALE_MESSAGE = '\(escapedStaleMessage)';
+          var BANNER_ID = 'clashfx-stale-rules-banner';
+          var rulesSnapshot = null;
+          var originalFetch = window.fetch;
+
+          function isRulesRequest(input, init) {
+            var method = ((init && init.method) ||
+              (typeof input !== 'string' && input.method) || 'GET').toUpperCase();
+            if (method !== 'GET') return false;
+            var rawURL = (typeof input === 'string') ? input : (input.url || '');
+            try {
+              var url = new URL(rawURL, window.location.href);
+              return url.origin === BACKEND_ORIGIN && url.pathname === '/rules';
+            } catch (_) {
+              return false;
+            }
+          }
+
+          function showStaleBanner() {
+            if (document.getElementById(BANNER_ID)) return;
+            var banner = document.createElement('div');
+            banner.id = BANNER_ID;
+            banner.textContent = STALE_MESSAGE;
+            banner.style.position = 'fixed';
+            banner.style.top = '10px';
+            banner.style.left = '50%';
+            banner.style.transform = 'translateX(-50%)';
+            banner.style.zIndex = '2147483647';
+            banner.style.padding = '7px 12px';
+            banner.style.borderRadius = '8px';
+            banner.style.background = 'rgba(154, 87, 0, 0.94)';
+            banner.style.color = '#fff';
+            banner.style.font = '12px -apple-system, BlinkMacSystemFont, sans-serif';
+            banner.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.22)';
+            banner.style.pointerEvents = 'none';
+            (document.body || document.documentElement).appendChild(banner);
+          }
+
+          function hideStaleBanner() {
+            var banner = document.getElementById(BANNER_ID);
+            if (banner) banner.remove();
+          }
+
+          function isMeaningfulRuleTime(count, value) {
+            if (Number(count) <= 0 || typeof value !== 'string') return false;
+            var milliseconds = Date.parse(value);
+            return isFinite(milliseconds) && milliseconds > 0;
+          }
+
+          function sanitizeRuleTimes(payload) {
+            if (!payload || !Array.isArray(payload.rules)) return false;
+            var changed = false;
+            for (var i = 0; i < payload.rules.length; i++) {
+              var rule = payload.rules[i];
+              var extra = rule && rule.extra;
+              if (!extra || typeof extra !== 'object') continue;
+              if (!isMeaningfulRuleTime(extra.hitCount, extra.hitAt) &&
+                  Object.prototype.hasOwnProperty.call(extra, 'hitAt')) {
+                delete extra.hitAt;
+                changed = true;
+              }
+              if (!isMeaningfulRuleTime(extra.missCount, extra.missAt) &&
+                  Object.prototype.hasOwnProperty.call(extra, 'missAt')) {
+                delete extra.missAt;
+                changed = true;
+              }
+            }
+            return changed;
+          }
+
+          function responseWithText(response, text) {
+            var headers = new Headers(response.headers);
+            headers.delete('content-length');
+            return new Response(text, {
+              status: response.status,
+              statusText: response.statusText,
+              headers: headers
+            });
+          }
+
+          function normalizeAndRememberRules(response) {
+            return response.clone().text().then(function(text) {
+              try {
+                var payload = JSON.parse(text);
+                if (!Array.isArray(payload.rules)) return response;
+                var changed = sanitizeRuleTimes(payload);
+                var normalizedText = changed ? JSON.stringify(payload) : text;
+                rulesSnapshot = normalizedText;
+                hideStaleBanner();
+                return changed ? responseWithText(response, normalizedText) : response;
+              } catch (_) {
+                return response;
+              }
+            });
+          }
+
+          function staleRulesResponse() {
+            showStaleBanner();
+            console.warn('[ClashFX] Core unavailable; serving the last valid rules snapshot');
+            return new Response(rulesSnapshot, {
+              status: 200,
+              headers: {
+                'Content-Type': 'application/json',
+                'X-ClashFX-Stale-Snapshot': 'rules'
+              }
+            });
+          }
+
+          window.fetch = function(input, init) {
+            if (!isRulesRequest(input, init)) {
+              return originalFetch.apply(this, arguments);
+            }
+            var receiver = this;
+            var args = arguments;
+            return originalFetch.apply(receiver, args).then(function(response) {
+              if (response && response.ok) {
+                return normalizeAndRememberRules(response);
+              }
+              if (rulesSnapshot && response && response.status >= 500) {
+                return staleRulesResponse();
+              }
+              return response;
+            }).catch(function(error) {
+              if (rulesSnapshot) return staleRulesResponse();
+              throw error;
+            });
+          };
+        })();
         """
     }
 
@@ -136,7 +415,6 @@ class ClashWebViewContoller: NSViewController {
         webview.uiDelegate = self
         webview.navigationDelegate = self
 
-        webview.customUserAgent = "ClashFX Runtime"
         if #available(macOS 13.3, *) {
             webview.isInspectable = true
         }
@@ -144,9 +422,35 @@ class ClashWebViewContoller: NSViewController {
         let secret = ConfigManager.shared.overrideSecret ?? ConfigManager.shared.apiSecret
         let metaCubeXDConfigScript = WKUserScript(source: Self.metaCubeXDConfigJS(port: port, secret: secret), injectionTime: .atDocumentStart, forMainFrameOnly: true)
         let guardScript = WKUserScript(source: Self.apiGuardJS, injectionTime: .atDocumentStart, forMainFrameOnly: true)
-        let hideScript = WKUserScript(source: Self.hideUpgradeJS, injectionTime: .atDocumentEnd, forMainFrameOnly: true)
+        let staleRulesMessage = NSLocalizedString(
+            "Core temporarily unavailable; showing the last valid rules snapshot",
+            comment: ""
+        )
+        let rulesSnapshotScript = WKUserScript(
+            source: Self.dashboardRulesSnapshotJS(port: port, staleMessage: staleRulesMessage),
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        let managedMessage = NSLocalizedString(
+            "Dashboard and core updates are managed by ClashFX",
+            comment: ""
+        )
+        let hideScript = WKUserScript(
+            source: Self.dashboardUpgradePolicyJS(managedMessage: managedMessage),
+            injectionTime: .atDocumentEnd,
+            forMainFrameOnly: true
+        )
         webview.configuration.userContentController.addUserScript(metaCubeXDConfigScript)
+        if let compatibilitySource = Self.bundledDashboardCompatibilityJS() {
+            let compatibilityScript = WKUserScript(
+                source: compatibilitySource,
+                injectionTime: .atDocumentStart,
+                forMainFrameOnly: true
+            )
+            webview.configuration.userContentController.addUserScript(compatibilityScript)
+        }
         webview.configuration.userContentController.addUserScript(guardScript)
+        webview.configuration.userContentController.addUserScript(rulesSnapshotScript)
         webview.configuration.userContentController.addUserScript(hideScript)
 
         bridge = JsBridgeUtil.initJSbridge(webview: webview, delegate: self)
@@ -197,11 +501,6 @@ class ClashWebViewContoller: NSViewController {
     }
 
     func loadWebRecourses() {
-        WKWebsiteDataStore.default().removeData(
-            ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
-            modifiedSince: Date(timeIntervalSince1970: 0),
-            completionHandler: {}
-        )
         // defaults write com.clashfx.app webviewUrl "your url"
         if let userDefineUrl = UserDefaults.standard.string(forKey: "webviewUrl"), let url = URL(string: userDefineUrl) {
             Logger.log("get user define url: \(url)")
@@ -238,6 +537,17 @@ extension ClashWebViewContoller: WKUIDelegate, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Logger.log("[dashboard] didFinish \(String(describing: navigation))", level: .info)
+        webView.evaluateJavaScript(Self.dashboardCompatibilityDiagnosticsJS) { result, error in
+            if let error = error {
+                Logger.log("[dashboard] compatibility diagnostics unavailable: \(error)", level: .warning)
+                return
+            }
+            guard let diagnostics = result as? String, diagnostics.utf8.count <= 2048 else {
+                Logger.log("[dashboard] compatibility diagnostics unavailable", level: .warning)
+                return
+            }
+            Logger.log("[dashboard] compatibility diagnostics \(diagnostics)", level: .info)
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

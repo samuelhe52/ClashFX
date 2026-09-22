@@ -320,6 +320,9 @@
 /* No comment provided by engineer. */
 "Testing" = "测速中";
 
+"Benchmark unavailable" = "测速不可用";
+"Proxy cleanup failed. ClashFX remains open; please try quitting again." = "代理设置恢复失败。ClashFX 将保持运行，请再次尝试退出。";
+
 /* No comment provided by engineer. */
 "The active connections will be interrupted." = "活动的连接将被强制打断。";
 
@@ -421,6 +424,11 @@
 
 /* No comment provided by engineer. */
 "Tray Icon" = "菜单栏图标";
+"Menu Bar Speed" = "菜单栏速度";
+"Speed alignment" = "速度对齐";
+"Speed Align Left" = "左";
+"Speed Align Center" = "居中";
+"Speed Align Right" = "右";
 
 /* No comment provided by engineer. */
 "The file could not be loaded as an image." = "无法将该文件加载为图片。";
@@ -459,6 +467,9 @@
 "Tray Menu" = "菜单栏菜单";
 
 /* No comment provided by engineer. */
+"Show Subscription Information" = "显示订阅信息";
+
+/* No comment provided by engineer. */
 "Node Switch" = "节点切换";
 
 /* No comment provided by engineer. */
@@ -475,6 +486,7 @@
 
 /* No comment provided by engineer. */
 "Dashboard" = "控制台";
+"Dashboard and core updates are managed by ClashFX" = "控制台与核心更新由 ClashFX 管理";
 
 /* No comment provided by engineer. */
 "Connection Details" = "连接查看器";
@@ -615,13 +627,61 @@
 /* Requires Enhanced Mode (uses PROCESS-NAME rules) */
 "Requires Enhanced Mode (uses PROCESS-NAME rules)" = "需要先开启增强模式（依赖 PROCESS-NAME 规则）";
 
+/* Claude 专用代理锁定 */
+"Claude Proxy Lock…" = "Claude 专用代理锁定…";
+"Claude Proxy Lock" = "Claude 专用代理锁定";
+"Pin Claude traffic to one proxy and block fallback" = "将 Claude 流量锁定到一个节点，并阻止故障回落";
+"Choose one concrete proxy node. ClashFX will force Claude Desktop, Claude Code, and Anthropic web domains through it in Enhanced Mode. If that node or ClashFX fails, protected traffic is blocked instead of falling back. While enabled, Rule mode, Enhanced Mode, and System Proxy cannot be turned off. Browser extensions, manually configured app proxies, and software that ignores macOS networking settings remain outside this protection." = "请选择一个具体代理节点。ClashFX 会在增强模式下强制 Claude 桌面版、Claude Code 和 Anthropic 网页域名走该节点。该节点或 ClashFX 失效时，受保护流量会被阻断，不会回落到其他线路。启用期间无法关闭规则模式、增强模式或系统代理。浏览器扩展、应用内手动代理，以及忽略 macOS 网络设置的软件不在此保护范围内。";
+"Apply Lock" = "应用锁定";
+"Enable Lock" = "启用锁定";
+"Disable Lock" = "停用锁定";
+"Claude Proxy Lock is protecting this setting. Disable the lock first." = "Claude 专用代理锁定正在保护此设置，请先停用锁定。";
+"Claude Proxy Lock could not be fully applied: %@" = "Claude 专用代理锁定未能完整生效：%@";
+"Proxy core is not running." = "代理核心未运行。";
+"Could not load the proxy list." = "无法载入代理节点列表。";
+"No eligible proxy nodes are available." = "没有可用的具体代理节点。";
+"Could not enable System Proxy." = "无法启用系统代理。";
+
 /* Settings sidebar */
 "Settings" = "设置";
-"Global Shortcut" = "全局快捷键";
+"Global Shortcut" = "快捷键";
+"Shortcut Scope" = "快捷键作用范围";
+"Enable Global Shortcuts" = "启用全局快捷键";
+"Shortcuts work while the ClashFX menu is open. Enable global shortcuts to use them in other apps. Open Menu is always global." = "快捷键默认仅在 ClashFX 菜单打开时生效。启用全局快捷键后，可在其他应用中使用。“打开菜单”始终为全局快捷键。";
 "Debug" = "调试";
 "Application Settings" = "应用设置";
 "Network Automation" = "网络自动化";
 "Connectivity Test" = "连通性测试";
 "Bypass Rules" = "绕过规则";
+"Copy Host or IP" = "复制域名或 IP";
 "Global Shortcut Updated" = "全局快捷键已更新";
 "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut." = "复制快捷键已调整，避免拦截 Command-C。可在“设置 > 全局快捷键”中自定义。";
+"Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "已移除会拦截 macOS 常用命令的全局快捷键。可在“设置 > 全局快捷键”中重新指定自定义组合。";
+"Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut." = "已移除默认的出站模式快捷键，避免在后台误切换模式。可在“设置 > 全局快捷键”中重新指定自定义组合。";
+"Could not switch to %@. ClashFX kept the core's current proxy mode." = "无法切换到 %@。ClashFX 已保留核心当前的代理模式。";
+"Failed to Start Enhanced Mode" = "增强模式启动失败";
+"Failed to Stop Enhanced Mode" = "增强模式停止失败";
+"TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list." = "TUN 路由排除中包含无效条目：\n%@\n\n请使用逗号或换行分隔条目，或者重置该列表。";
+"Open Settings" = "打开设置";
+"Core temporarily unavailable; showing the last valid rules snapshot" = "核心暂时不可用，正在显示上一次有效的规则快照";
+"Auto (runtime: %@)" = "自动（当前运行：%@）";
+"Restarting…" = "正在重新启动…";
+"Press shortcut" = "请按下快捷键";
+"Record Shortcut" = "录制快捷键";
+"Shortcut registration failed" = "快捷键注册失败";
+"Shortcut already used" = "快捷键已被使用";
+"This shortcut is already assigned to %@." = "此快捷键已分配给 %@。";
+"Shortcut conflicts with macOS" = "快捷键与 macOS 冲突";
+"This shortcut is used by the “%@” menu command. Use it anyway?" = "此快捷键已用于“%@”菜单命令。仍要使用吗？";
+"This shortcut is commonly reserved by macOS. Use it anyway?" = "此快捷键通常由 macOS 保留。仍要使用吗？";
+"Use Anyway" = "仍要使用";
+"Configured port: %d; temporary runtime fallback: %d" = "配置端口：%d；临时运行端口：%d";
+
+// Benchmark evidence provenance
+"Measured at: %@" = "测量时间：%@";
+"Historical benchmark result" = "历史测速结果";
+"Latest benchmark unavailable; showing the last measurement" = "本次测速不可用；显示上次测量结果";
+"Not tested" = "未测速";
+
+"No testable proxy nodes" = "无可测速代理节点";
+"Direct fallback (no proxy nodes)" = "直连兜底（无代理节点）";

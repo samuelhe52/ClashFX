@@ -1,6 +1,235 @@
 package main
 
-import "testing"
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"net"
+	"net/http"
+	"sync"
+	"syscall"
+	"testing"
+	"time"
+
+	A "github.com/metacubex/mihomo/adapter"
+	"github.com/metacubex/mihomo/adapter/outbound"
+	OG "github.com/metacubex/mihomo/adapter/outboundgroup"
+	P "github.com/metacubex/mihomo/adapter/provider"
+	"github.com/metacubex/mihomo/common/utils"
+	C "github.com/metacubex/mihomo/constant"
+	CP "github.com/metacubex/mihomo/constant/provider"
+	E "github.com/metacubex/sing/common/exceptions"
+)
+
+type delayedURLTestAdapter struct {
+	*outbound.Base
+	mu    sync.RWMutex
+	delay time.Duration
+}
+
+// controlledURLTestProxy is a deterministic C.Proxy fixture: the group sees
+// only the configured liveness and delay, never scheduler or socket timing.
+type controlledURLTestProxy struct {
+	*outbound.Base
+	mu    sync.RWMutex
+	delay uint16
+	alive bool
+}
+
+func newControlledURLTestProxy(name string, delay uint16) *controlledURLTestProxy {
+	return &controlledURLTestProxy{
+		Base:  outbound.NewBase(outbound.BaseOption{Name: name, Type: C.Direct}),
+		delay: delay,
+		alive: true,
+	}
+}
+
+func (p *controlledURLTestProxy) setState(delay uint16, alive bool) {
+	p.mu.Lock()
+	p.delay = delay
+	p.alive = alive
+	p.mu.Unlock()
+}
+
+func (p *controlledURLTestProxy) Adapter() C.ProxyAdapter {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.Base
+}
+
+func (p *controlledURLTestProxy) AliveForTestUrl(string) bool {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.alive
+}
+
+func (p *controlledURLTestProxy) LastDelayForTestUrl(string) uint16 {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.delay
+}
+
+func (p *controlledURLTestProxy) DelayHistory() []C.DelayHistory { return nil }
+
+func (p *controlledURLTestProxy) ExtraDelayHistories() map[string]C.ProxyState { return nil }
+
+func (p *controlledURLTestProxy) URLTest(context.Context, string, utils.IntRanges[uint16]) (uint16, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.delay, nil
+}
+
+func newDelayedURLTestAdapter(name string, delay time.Duration) *delayedURLTestAdapter {
+	return &delayedURLTestAdapter{
+		Base:  outbound.NewBase(outbound.BaseOption{Name: name, Type: C.Direct}),
+		delay: delay,
+	}
+}
+
+func (a *delayedURLTestAdapter) setDelay(delay time.Duration) {
+	a.mu.Lock()
+	a.delay = delay
+	a.mu.Unlock()
+}
+
+func (a *delayedURLTestAdapter) DialContext(context.Context, *C.Metadata) (C.Conn, error) {
+	a.mu.RLock()
+	delay := a.delay
+	a.mu.RUnlock()
+	time.Sleep(delay)
+
+	client, server := net.Pipe()
+	go func() {
+		defer server.Close()
+		request, err := http.ReadRequest(bufio.NewReader(server))
+		if err != nil {
+			return
+		}
+		_ = request.Body.Close()
+		_, _ = fmt.Fprint(server, "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n")
+	}()
+	return outbound.NewConn(client, a), nil
+}
+
+func TestClosedTunErrorsAreTreatedAsClosed(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "socket operation on non-socket", err: syscall.ENOTSOCK},
+		{name: "bad file descriptor", err: syscall.EBADF},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if !E.IsClosed(test.err) {
+				t.Fatalf("%v must stop the Darwin TUN read loop", test.err)
+			}
+		})
+	}
+}
+
+func TestURLTestRecomputesSelectionAfterAllCandidatesFinish(t *testing.T) {
+	const testURL = "http://clashfx.test/generate_204"
+	firstAdapter := newDelayedURLTestAdapter("first", 10*time.Millisecond)
+	secondAdapter := newDelayedURLTestAdapter("second", 80*time.Millisecond)
+	firstProxy := A.NewProxy(firstAdapter)
+	secondProxy := A.NewProxy(secondAdapter)
+	proxies := []C.Proxy{firstProxy, secondProxy}
+	healthCheck := P.NewHealthCheck(proxies, testURL, 1000, 0, true, nil)
+	proxyProvider, err := P.NewCompatibleProvider("test", proxies, healthCheck)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer proxyProvider.Close()
+
+	group := OG.NewURLTest(
+		&OG.GroupCommonOption{Name: "auto", URL: testURL},
+		[]CP.ProxyProvider{proxyProvider},
+	)
+	if _, err := group.URLTest(context.Background(), testURL, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := group.Now(); got != "first" {
+		t.Fatalf("initial selection = %q, want first", got)
+	}
+
+	firstAdapter.setDelay(250 * time.Millisecond)
+	secondAdapter.setDelay(20 * time.Millisecond)
+	done := make(chan error, 1)
+	go func() {
+		_, err := group.URLTest(context.Background(), testURL, nil)
+		done <- err
+	}()
+
+	// Allow the faster second result to settle while the first request remains
+	// in flight. Polling LastDelayForTestUrl here races Mihomo's queue write and
+	// makes this regression test itself unsafe under go test -race.
+	time.Sleep(100 * time.Millisecond)
+	if got := group.Now(); got != "first" {
+		t.Fatalf("selection during partial results = %q, want cached first", got)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := group.Now(); got != "second" {
+		t.Fatalf("selection after complete results = %q, want second", got)
+	}
+}
+
+func TestURLTestHonorsExactToleranceBoundary(t *testing.T) {
+	const (
+		testURL   = "http://clashfx.test/generate_204"
+		tolerance = 10
+	)
+	current := newControlledURLTestProxy("current", 10)
+	candidate := newControlledURLTestProxy("candidate", 30)
+	proxyMap := map[string]C.Proxy{
+		"current":   current,
+		"candidate": candidate,
+	}
+
+	parsed, err := OG.ParseProxyGroup(map[string]any{
+		"name":      "auto",
+		"type":      "url-test",
+		"url":       testURL,
+		"tolerance": tolerance,
+		// Keep the selected node after the first position: Mihomo's URLTest
+		// comparator marks the retained node while scanning remaining proxies.
+		"proxies": []string{"candidate", "current"},
+	}, proxyMap, map[string]CP.ProxyProvider{}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	group, ok := parsed.(*OG.URLTest)
+	if !ok {
+		t.Fatalf("parsed group = %T, want *outboundgroup.URLTest", parsed)
+	}
+
+	if _, err := group.URLTest(context.Background(), testURL, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := group.Now(); got != "current" {
+		t.Fatalf("initial selection = %q, want current", got)
+	}
+
+	current.setState(100, true)
+	candidate.setState(90, true)
+	if _, err := group.URLTest(context.Background(), testURL, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := group.Now(); got != "current" {
+		t.Fatalf("equal tolerance selection = %q, want current", got)
+	}
+
+	candidate.setState(89, true)
+	if _, err := group.URLTest(context.Background(), testURL, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := group.Now(); got != "candidate" {
+		t.Fatalf("tolerance plus one selection = %q, want candidate", got)
+	}
+}
 
 func TestSplitTunRouteExcludeEntriesAcceptsLocalhost(t *testing.T) {
 	prefixes, domains, invalid := splitTunRouteExcludeEntries("127.0.0.1, localhost, *.local, +.example.com")

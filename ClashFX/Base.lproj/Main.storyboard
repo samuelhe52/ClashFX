@@ -349,17 +349,23 @@
                                                                     </textFieldCell>
                                                                 </textField>
                                                                 <textField focusRingType="none" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="m7z-Fp-ctz">
-                                                                    <rect key="frame" x="139" y="0.0" width="251" height="20"/>
+                                                                    <rect key="frame" x="139" y="0.0" width="190" height="20"/>
                                                                     <textFieldCell key="cell" scrollable="YES" lineBreakMode="clipping" selectable="YES" editable="YES" sendsActionOnEndEditing="YES" state="on" borderStyle="bezel" drawsBackground="YES" usesSingleLineMode="YES" id="nhC-xY-dyM">
-                                                                        <numberFormatter key="formatter" formatterBehavior="default10_4" localizesFormat="NO" usesGroupingSeparator="NO" formatWidth="-1" groupingSize="0" minimumIntegerDigits="1" maximumIntegerDigits="42" id="WfP-3f-zii">
-                                                                            <real key="minimum" value="0.0"/>
-                                                                            <real key="maximum" value="65533"/>
-                                                                        </numberFormatter>
                                                                         <font key="font" metaFont="system"/>
                                                                         <color key="textColor" name="controlTextColor" catalog="System" colorSpace="catalog"/>
                                                                         <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
                                                                     </textFieldCell>
                                                                 </textField>
+                                                                <button verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="benchmark-url-save">
+                                                                    <rect key="frame" x="335" y="-2" width="61" height="25"/>
+                                                                    <buttonCell key="cell" type="push" title="Save" bezelStyle="rounded" alignment="center" controlSize="small" borderStyle="border" inset="2" id="benchmark-url-save-cell">
+                                                                        <behavior key="behavior" pushIn="YES" lightByBackground="YES" lightByGray="YES"/>
+                                                                        <font key="font" metaFont="smallSystem"/>
+                                                                    </buttonCell>
+                                                                    <connections>
+                                                                        <action selector="actionSaveBenchmarkURL:" target="kma-mp-ncL" id="benchmark-url-save-action"/>
+                                                                    </connections>
+                                                                </button>
                                                             </subviews>
                                                             <constraints>
                                                                 <constraint firstItem="m7z-Fp-ctz" firstAttribute="top" secondItem="dcS-bg-IKd" secondAttribute="top" id="4hg-YN-oeF"/>
@@ -368,7 +374,9 @@
                                                                 <constraint firstAttribute="bottom" secondItem="m7z-Fp-ctz" secondAttribute="bottom" id="GVa-xd-2ok"/>
                                                                 <constraint firstItem="Rkp-p5-5Uv" firstAttribute="centerY" secondItem="dcS-bg-IKd" secondAttribute="centerY" id="TYY-wj-XSb"/>
                                                                 <constraint firstItem="Rkp-p5-5Uv" firstAttribute="leading" secondItem="dcS-bg-IKd" secondAttribute="leading" id="UMy-Lv-yml"/>
-                                                                <constraint firstAttribute="trailing" secondItem="m7z-Fp-ctz" secondAttribute="trailing" id="ayK-9c-uAf"/>
+                                                                <constraint firstItem="benchmark-url-save" firstAttribute="leading" secondItem="m7z-Fp-ctz" secondAttribute="trailing" constant="8" symbolic="YES" id="benchmark-url-save-leading"/>
+                                                                <constraint firstItem="benchmark-url-save" firstAttribute="centerY" secondItem="dcS-bg-IKd" secondAttribute="centerY" id="benchmark-url-save-center"/>
+                                                                <constraint firstAttribute="trailing" secondItem="benchmark-url-save" secondAttribute="trailing" id="benchmark-url-save-trailing"/>
                                                             </constraints>
                                                         </customView>
                                                     </subviews>
@@ -399,7 +407,7 @@
                                             <subviews>
                                                 <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="TVZ-xJ-zK0">
                                                     <rect key="frame" x="18" y="340" width="394" height="16"/>
-                                                    <textFieldCell key="cell" lineBreakMode="clipping" title="Bypass proxy settings for these Hosts &amp; Domains" id="NPu-V9-f3r">
+                                                    <textFieldCell key="cell" lineBreakMode="clipping" title="System Proxy bypass for these Hosts &amp; Domains" id="NPu-V9-f3r">
                                                         <font key="font" usesAppearanceFont="YES"/>
                                                         <color key="textColor" name="labelColor" catalog="System" colorSpace="catalog"/>
                                                         <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
@@ -407,7 +415,7 @@
                                                 </textField>
                                                 <textField focusRingType="none" horizontalHuggingPriority="251" verticalHuggingPriority="750" translatesAutoresizingMaskIntoConstraints="NO" id="VvP-5I-QhW">
                                                     <rect key="frame" x="18" y="323" width="394" height="13"/>
-                                                    <textFieldCell key="cell" lineBreakMode="clipping" title="Separated by commas(,)" id="sfe-wu-UXp">
+                                                    <textFieldCell key="cell" lineBreakMode="clipping" title="Applies now; Enhanced Mode uses Profile Mixin" id="sfe-wu-UXp">
                                                         <font key="font" textStyle="footnote" name=".SFNS-Regular"/>
                                                         <color key="textColor" name="secondaryLabelColor" catalog="System" colorSpace="catalog"/>
                                                         <color key="backgroundColor" name="textBackgroundColor" catalog="System" colorSpace="catalog"/>
@@ -573,6 +581,7 @@
                         <outlet property="apiPortTextField" destination="xJH-gA-vcL" id="L8f-GZ-BYW"/>
                         <outlet property="apiSecretOverrideButton" destination="N0V-ac-Acm" id="n9x-y4-XsR"/>
                         <outlet property="apiSecretTextField" destination="CE4-Aa-FiI" id="po3-LI-T3l"/>
+                        <outlet property="benchmarkURLSaveButton" destination="benchmark-url-save" id="benchmark-url-save-outlet"/>
                         <outlet property="ignoreListTextView" destination="JDw-FW-A2o" id="fhs-QW-Ug6"/>
                         <outlet property="tunRouteExcludeTextView" destination="UuX-eK-vWq" id="iK2-ZL-s3Q"/>
                         <outlet property="ipv6Button" destination="buf-aL-Tkl" id="s3h-2l-ik5"/>
@@ -1272,7 +1281,7 @@
                                             <color key="backgroundColor" name="controlBackgroundColor" catalog="System" colorSpace="catalog"/>
                                             <color key="gridColor" name="gridColor" catalog="System" colorSpace="catalog"/>
                                             <tableColumns>
-                                                <tableColumn identifier="url" editable="NO" width="176" minWidth="40" maxWidth="1000" id="C79-J5-30z">
+                                                <tableColumn identifier="url" editable="NO" width="145" minWidth="120" maxWidth="1000" id="C79-J5-30z">
                                                     <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Url">
                                                         <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
                                                         <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
@@ -1311,7 +1320,7 @@
                                                         </tableCellView>
                                                     </prototypeCellViews>
                                                 </tableColumn>
-                                                <tableColumn identifier="configName" width="86" minWidth="40" maxWidth="1000" id="lRE-Xa-euB">
+                                                <tableColumn identifier="configName" width="86" minWidth="70" maxWidth="1000" id="lRE-Xa-euB">
                                                     <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Config Name">
                                                         <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
                                                         <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
@@ -1350,7 +1359,7 @@
                                                         </tableCellView>
                                                     </prototypeCellViews>
                                                 </tableColumn>
-                                                <tableColumn identifier="updateTime" width="52" minWidth="40" maxWidth="1000" id="xoc-hs-9qa">
+                                                <tableColumn identifier="updateTime" width="120" minWidth="110" maxWidth="1000" id="xoc-hs-9qa">
                                                     <tableHeaderCell key="headerCell" lineBreakMode="truncatingTail" borderStyle="border" title="Update Time">
                                                         <color key="textColor" name="headerTextColor" catalog="System" colorSpace="catalog"/>
                                                         <color key="backgroundColor" name="headerColor" catalog="System" colorSpace="catalog"/>
@@ -2134,6 +2143,7 @@
                         <outlet property="modeBoxView" destination="kTK-fR-GhL" id="D5n-YX-aya"/>
                         <outlet property="otherBoxView" destination="lP6-io-wrz" id="7w1-En-MEl"/>
                         <outlet property="proxyBox" destination="BFE-Qq-B2H" id="IG2-Fa-v80"/>
+                        <outlet property="scopeDescriptionTextField" destination="b4I-7R-wVz" id="r2F-sC-oPe"/>
                     </connections>
                 </viewController>
                 <customObject id="dgl-Fi-8yX" userLabel="First Responder" customClass="NSResponder" sceneMemberID="firstResponder"/>

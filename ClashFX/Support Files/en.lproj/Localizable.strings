@@ -283,6 +283,8 @@
 /* No comment provided by engineer. */
 "Testing" = "Testing";
 
+"Benchmark unavailable" = "Benchmark unavailable";
+
 /* No comment provided by engineer. */
 "The active connections will be interrupted." = "The active connections will be interrupted.";
 
@@ -384,6 +386,11 @@
 
 /* No comment provided by engineer. */
 "Tray Icon" = "Tray Icon";
+"Menu Bar Speed" = "Menu Bar Speed";
+"Speed alignment" = "Speed alignment";
+"Speed Align Left" = "Left";
+"Speed Align Center" = "Center";
+"Speed Align Right" = "Right";
 
 /* No comment provided by engineer. */
 "The file could not be loaded as an image." = "The file could not be loaded as an image.";
@@ -422,6 +429,9 @@
 "Tray Menu" = "Tray Menu";
 
 /* No comment provided by engineer. */
+"Show Subscription Information" = "Show Subscription Information";
+
+/* No comment provided by engineer. */
 "Node Switch" = "Node Switch";
 
 /* No comment provided by engineer. */
@@ -438,6 +448,7 @@
 
 /* No comment provided by engineer. */
 "Dashboard" = "Dashboard";
+"Dashboard and core updates are managed by ClashFX" = "Dashboard and core updates are managed by ClashFX";
 
 /* No comment provided by engineer. */
 "Connection Details" = "Connection Details";
@@ -582,13 +593,61 @@
 /* Requires Enhanced Mode (uses PROCESS-NAME rules) */
 "Requires Enhanced Mode (uses PROCESS-NAME rules)" = "Requires Enhanced Mode (uses PROCESS-NAME rules)";
 
+/* Claude Proxy Lock */
+"Claude Proxy Lock…" = "Claude Proxy Lock…";
+"Claude Proxy Lock" = "Claude Proxy Lock";
+"Pin Claude traffic to one proxy and block fallback" = "Pin Claude traffic to one proxy and block fallback";
+"Choose one concrete proxy node. ClashFX will force Claude Desktop, Claude Code, and Anthropic web domains through it in Enhanced Mode. If that node or ClashFX fails, protected traffic is blocked instead of falling back. While enabled, Rule mode, Enhanced Mode, and System Proxy cannot be turned off. Browser extensions, manually configured app proxies, and software that ignores macOS networking settings remain outside this protection." = "Choose one concrete proxy node. ClashFX will force Claude Desktop, Claude Code, and Anthropic web domains through it in Enhanced Mode. If that node or ClashFX fails, protected traffic is blocked instead of falling back. While enabled, Rule mode, Enhanced Mode, and System Proxy cannot be turned off. Browser extensions, manually configured app proxies, and software that ignores macOS networking settings remain outside this protection.";
+"Apply Lock" = "Apply Lock";
+"Enable Lock" = "Enable Lock";
+"Disable Lock" = "Disable Lock";
+"Claude Proxy Lock is protecting this setting. Disable the lock first." = "Claude Proxy Lock is protecting this setting. Disable the lock first.";
+"Claude Proxy Lock could not be fully applied: %@" = "Claude Proxy Lock could not be fully applied: %@";
+"Proxy core is not running." = "Proxy core is not running.";
+"Could not load the proxy list." = "Could not load the proxy list.";
+"No eligible proxy nodes are available." = "No eligible proxy nodes are available.";
+"Could not enable System Proxy." = "Could not enable System Proxy.";
+
 /* Settings sidebar */
 "Settings" = "Settings";
 "Global Shortcut" = "Shortcuts";
+"Shortcut Scope" = "Shortcut Scope";
+"Enable Global Shortcuts" = "Enable Global Shortcuts";
+"Shortcuts work while the ClashFX menu is open. Enable global shortcuts to use them in other apps. Open Menu is always global." = "Shortcuts work while the ClashFX menu is open. Enable global shortcuts to use them in other apps. Open Menu is always global.";
 "Debug" = "Debug";
 "Application Settings" = "Application Settings";
 "Network Automation" = "Network Automation";
 "Connectivity Test" = "Connectivity Test";
 "Bypass Rules" = "Bypass Rules";
+"Copy Host or IP" = "Copy Host or IP";
 "Global Shortcut Updated" = "Global Shortcut Updated";
 "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut." = "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut.";
+"Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut.";
+"Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut." = "Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut.";
+"Could not switch to %@. ClashFX kept the core's current proxy mode." = "Could not switch to %@. ClashFX kept the core's current proxy mode.";
+"Failed to Start Enhanced Mode" = "Failed to Start Enhanced Mode";
+"Failed to Stop Enhanced Mode" = "Failed to Stop Enhanced Mode";
+"TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list." = "TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list.";
+"Open Settings" = "Open Settings";
+"Core temporarily unavailable; showing the last valid rules snapshot" = "Core temporarily unavailable; showing the last valid rules snapshot";
+"Auto (runtime: %@)" = "Auto (runtime: %@)";
+"Restarting…" = "Restarting…";
+"Press shortcut" = "Press shortcut";
+"Record Shortcut" = "Record Shortcut";
+"Shortcut registration failed" = "Shortcut registration failed";
+"Shortcut already used" = "Shortcut already used";
+"This shortcut is already assigned to %@." = "This shortcut is already assigned to %@.";
+"Shortcut conflicts with macOS" = "Shortcut conflicts with macOS";
+"This shortcut is used by the “%@” menu command. Use it anyway?" = "This shortcut is used by the “%@” menu command. Use it anyway?";
+"This shortcut is commonly reserved by macOS. Use it anyway?" = "This shortcut is commonly reserved by macOS. Use it anyway?";
+"Use Anyway" = "Use Anyway";
+"Configured port: %d; temporary runtime fallback: %d" = "Configured port: %d; temporary runtime fallback: %d";
+
+// Benchmark evidence provenance
+"Measured at: %@" = "Measured at: %@";
+"Historical benchmark result" = "Historical benchmark result";
+"Latest benchmark unavailable; showing the last measurement" = "Latest benchmark unavailable; showing the last measurement";
+"Not tested" = "Not tested";
+
+"No testable proxy nodes" = "No testable proxy nodes";
+"Direct fallback (no proxy nodes)" = "Direct fallback (no proxy nodes)";

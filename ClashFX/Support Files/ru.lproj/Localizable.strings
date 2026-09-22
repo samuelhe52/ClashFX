@@ -283,6 +283,8 @@
 /* No comment provided by engineer. */
 "Testing" = "Тестирование";
 
+"Benchmark unavailable" = "Тест недоступен";
+
 /* No comment provided by engineer. */
 "The active connections will be interrupted." = "Активные соединения будут прерваны.";
 
@@ -384,6 +386,11 @@
 
 /* No comment provided by engineer. */
 "Tray Icon" = "Иконка трея";
+"Menu Bar Speed" = "Скорость в строке меню";
+"Speed alignment" = "Выравнивание скорости";
+"Speed Align Left" = "Слева";
+"Speed Align Center" = "Центр";
+"Speed Align Right" = "Справа";
 
 /* No comment provided by engineer. */
 "The file could not be loaded as an image." = "Не удалось загрузить файл как изображение.";
@@ -422,6 +429,9 @@
 "Tray Menu" = "Меню трея";
 
 /* No comment provided by engineer. */
+"Show Subscription Information" = "Показывать информацию о подписке";
+
+/* No comment provided by engineer. */
 "Node Switch" = "Переключение узла";
 
 /* No comment provided by engineer. */
@@ -438,6 +448,7 @@
 
 /* No comment provided by engineer. */
 "Dashboard" = "Панель управления";
+"Dashboard and core updates are managed by ClashFX" = "Обновления панели и ядра управляются ClashFX";
 
 /* No comment provided by engineer. */
 "Connection Details" = "Сведения о соединении";
@@ -575,13 +586,61 @@
 /* Requires Enhanced Mode (uses PROCESS-NAME rules) */
 "Requires Enhanced Mode (uses PROCESS-NAME rules)" = "Требуется режим Enhanced (используются правила PROCESS-NAME)";
 
+/* Claude Proxy Lock */
+"Claude Proxy Lock…" = "Блокировка прокси Claude…";
+"Claude Proxy Lock" = "Блокировка прокси Claude";
+"Pin Claude traffic to one proxy and block fallback" = "Закрепить трафик Claude за одним прокси без переключения";
+"Choose one concrete proxy node. ClashFX will force Claude Desktop, Claude Code, and Anthropic web domains through it in Enhanced Mode. If that node or ClashFX fails, protected traffic is blocked instead of falling back. While enabled, Rule mode, Enhanced Mode, and System Proxy cannot be turned off. Browser extensions, manually configured app proxies, and software that ignores macOS networking settings remain outside this protection." = "Выберите один конкретный прокси-узел. В расширенном режиме ClashFX направит через него Claude Desktop, Claude Code и веб-домены Anthropic. При отказе узла или ClashFX защищённый трафик будет заблокирован без переключения на другой маршрут. Пока функция включена, нельзя отключить режим правил, расширенный режим или системный прокси. Расширения браузера, ручные настройки прокси в приложениях и ПО, игнорирующее сетевые настройки macOS, не входят в область защиты.";
+"Apply Lock" = "Применить";
+"Enable Lock" = "Включить";
+"Disable Lock" = "Отключить";
+"Claude Proxy Lock is protecting this setting. Disable the lock first." = "Эта настройка защищена блокировкой прокси Claude. Сначала отключите блокировку.";
+"Claude Proxy Lock could not be fully applied: %@" = "Не удалось полностью применить блокировку прокси Claude: %@";
+"Proxy core is not running." = "Ядро прокси не запущено.";
+"Could not load the proxy list." = "Не удалось загрузить список прокси.";
+"No eligible proxy nodes are available." = "Нет доступных конкретных прокси-узлов.";
+"Could not enable System Proxy." = "Не удалось включить системный прокси.";
+
 /* Settings sidebar */
 "Settings" = "Настройки";
 "Global Shortcut" = "Сочетания";
+"Shortcut Scope" = "Область сочетаний";
+"Enable Global Shortcuts" = "Включить глобальные сочетания";
+"Shortcuts work while the ClashFX menu is open. Enable global shortcuts to use them in other apps. Open Menu is always global." = "Сочетания работают, пока открыто меню ClashFX. Включите глобальные сочетания, чтобы использовать их в других приложениях. «Открыть меню» всегда работает глобально.";
 "Debug" = "Отладка";
 "Application Settings" = "Настройки приложения";
 "Network Automation" = "Автоматизация сети";
 "Connectivity Test" = "Проверка подключения";
 "Bypass Rules" = "Правила обхода";
+"Copy Host or IP" = "Копировать имя хоста или IP";
 "Global Shortcut Updated" = "Глобальные сочетания обновлены";
 "Copy shortcuts were changed to avoid intercepting Command-C. You can customize them in Settings > Global Shortcut." = "Сочетания для копирования изменены, чтобы не перехватывать Command-C. Их можно настроить в «Настройки > Глобальные сочетания».";
+"Unsafe Command-key shortcuts were removed to restore standard macOS shortcuts. You can assign custom combinations in Settings > Global Shortcut." = "Небезопасные глобальные сочетания с Command удалены, чтобы восстановить стандартные сочетания macOS. Свои сочетания можно назначить в разделе «Настройки > Глобальные сочетания».";
+"Default proxy-mode shortcuts were removed to prevent accidental background mode changes. You can assign custom combinations in Settings > Global Shortcut." = "Сочетания клавиш режима прокси по умолчанию удалены, чтобы предотвратить случайное переключение в фоне. Назначить свои сочетания можно в разделе «Настройки > Глобальные сочетания».";
+"Could not switch to %@. ClashFX kept the core's current proxy mode." = "Не удалось переключиться на %@. ClashFX сохранил текущий режим прокси ядра.";
+"Failed to Start Enhanced Mode" = "Не удалось запустить расширенный режим";
+"Failed to Stop Enhanced Mode" = "Не удалось остановить расширенный режим";
+"TUN Route Exclude contains invalid entries:\n%@\n\nSeparate entries with commas or new lines, or reset the list." = "Список исключений маршрутов TUN содержит недопустимые элементы:\n%@\n\nРазделите элементы запятыми или переносами строк либо сбросьте список.";
+"Open Settings" = "Открыть настройки";
+"Core temporarily unavailable; showing the last valid rules snapshot" = "Ядро временно недоступно; показан последний действительный снимок правил";
+"Auto (runtime: %@)" = "Авто (сейчас: %@)";
+"Restarting…" = "Перезапуск…";
+"Press shortcut" = "Нажмите сочетание клавиш";
+"Record Shortcut" = "Записать сочетание";
+"Shortcut registration failed" = "Не удалось зарегистрировать сочетание";
+"Shortcut already used" = "Сочетание уже используется";
+"This shortcut is already assigned to %@." = "Это сочетание уже назначено для %@.";
+"Shortcut conflicts with macOS" = "Сочетание конфликтует с macOS";
+"This shortcut is used by the “%@” menu command. Use it anyway?" = "Это сочетание используется командой меню «%@». Всё равно использовать?";
+"This shortcut is commonly reserved by macOS. Use it anyway?" = "Это сочетание обычно зарезервировано macOS. Всё равно использовать?";
+"Use Anyway" = "Всё равно использовать";
+"Configured port: %d; temporary runtime fallback: %d" = "Настроенный порт: %d; временный рабочий порт: %d";
+
+// Benchmark evidence provenance
+"Measured at: %@" = "Время измерения: %@";
+"Historical benchmark result" = "Предыдущее измерение задержки";
+"Latest benchmark unavailable; showing the last measurement" = "Новое измерение недоступно; показан предыдущий результат";
+"Not tested" = "Не измерено";
+
+"No testable proxy nodes" = "Нет узлов прокси для проверки";
+"Direct fallback (no proxy nodes)" = "Прямое соединение (нет узлов прокси)";
