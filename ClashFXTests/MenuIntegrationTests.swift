@@ -133,7 +133,7 @@ final class MenuIntegrationTests: XCTestCase {
         MihomoMenuURLProtocol.topology[group] = value
     }
 
-    func testRefreshingDuringBenchmarkKeepsRealRowsAndUpdatesCheckmark() {
+    func testRefreshingDuringBenchmarkKeepsRealRowsAndUpdatesCheckmark() throws {
         let menu = menu()
         let identities = menu.items.map(ObjectIdentifier.init)
         configure("Leaf-A", urlA, 83)
@@ -155,11 +155,11 @@ final class MenuIntegrationTests: XCTestCase {
         XCTAssertEqual(text(menu, "Automatic"), "83 ms")
         XCTAssertEqual(text(menu, "Leaf-B"), "107 ms")
         XCTAssertEqual(menu.items.map(ObjectIdentifier.init), identities)
-        let view = row(menu, "Leaf-B").view as! ProxyItemView
+        let view = try XCTUnwrap(row(menu, "Leaf-B").view as? ProxyItemView)
         view.frame = NSRect(x: 0, y: 0, width: 360, height: 22)
         view.layoutSubtreeIfNeeded()
         view.layout()
-        XCTAssertGreaterThan(view.imageView!.frame.width, 0)
+        XCTAssertGreaterThan(try XCTUnwrap(view.imageView?.frame.width), 0)
         XCTAssertLessThanOrEqual(view.nameLabel.frame.maxX, view.delayLabel.frame.minX)
     }
 
@@ -189,10 +189,10 @@ final class MenuIntegrationTests: XCTestCase {
         XCTAssertEqual(menu.items[0].title, NSLocalizedString("Benchmark", comment: ""))
     }
 
-    func testAutomaticRetestUsesFreshNowRatherThanLowestDisplayedDelay() {
+    func testAutomaticRetestUsesFreshNowRatherThanLowestDisplayedDelay() throws {
         _ = menu() // Also exercise the nested automatic row's observers.
         let automatic = menu("Automatic")
-        let group = snapshot.proxiesMap["Automatic"]!
+        let group = try XCTUnwrap(snapshot.proxiesMap["Automatic"])
         header = ProxyGroupMenuItemView(proxyGroup: group, targetProxy: "Leaf-A", hasLeftPadding: true)
         MihomoMenuURLProtocol.groupReply = .init(body: ["Leaf-A": 20, "Leaf-B": 80])
         MihomoMenuURLProtocol.groupDidRespond = { [weak self] in self?.setNow("Automatic", "Leaf-B") }
@@ -201,28 +201,28 @@ final class MenuIntegrationTests: XCTestCase {
         XCTAssertFalse(selected(automatic, "Leaf-A"))
         XCTAssertTrue(selected(automatic, "Leaf-B"))
         XCTAssertEqual(text(automatic, "Leaf-B"), "80 ms")
-        let labels = header!.effectView.subviews.compactMap { ($0 as? NSTextField)?.stringValue }
+        let labels = try XCTUnwrap(header?.effectView.subviews.compactMap { ($0 as? NSTextField)?.stringValue })
         XCTAssertTrue(labels.contains { $0.contains("Leaf-B") }, "\(labels)")
-        XCTAssertEqual(header!.delayLabel.stringValue, "80 ms")
-        XCTAssertNil(header!.toolTip)
-        XCTAssertTrue(header!.delayLabel.toolTip?.contains(urlB) == true)
-        header!.frame = NSRect(x: 0, y: 0, width: 360, height: 22)
-        header!.layoutSubtreeIfNeeded()
-        XCTAssertGreaterThan(header!.delayLabel.frame.width, 0)
-        XCTAssertLessThan(header!.delayLabel.frame.width, 100)
-        let nodeLabel = header!.effectView.subviews.compactMap { $0 as? NSTextField }
-            .first { $0.stringValue.contains("Leaf-B") }!
-        XCTAssertLessThanOrEqual(nodeLabel.frame.maxX, header!.delayLabel.frame.minX)
-        let request = MihomoMenuURLProtocol.requests.first { $0.url!.path == "/group/Automatic/delay" }!
-        XCTAssertTrue(request.url!.absoluteString.contains("test-b.invalid"))
+        XCTAssertEqual(header?.delayLabel.stringValue, "80 ms")
+        XCTAssertNil(header?.toolTip)
+        XCTAssertTrue(header?.delayLabel.toolTip?.contains(urlB) == true)
+        header?.frame = NSRect(x: 0, y: 0, width: 360, height: 22)
+        header?.layoutSubtreeIfNeeded()
+        XCTAssertGreaterThan(try XCTUnwrap(header?.delayLabel.frame.width), 0)
+        XCTAssertLessThan(try XCTUnwrap(header?.delayLabel.frame.width), 100)
+        let nodeLabel = try XCTUnwrap(header?.effectView.subviews.compactMap { $0 as? NSTextField }
+            .first { $0.stringValue.contains("Leaf-B") })
+        XCTAssertLessThanOrEqual(nodeLabel.frame.maxX, try XCTUnwrap(header?.delayLabel.frame.minX))
+        let request = try XCTUnwrap(MihomoMenuURLProtocol.requests.first { $0.url!.path == "/group/Automatic/delay" })
+        XCTAssertTrue(try XCTUnwrap(request.url?.absoluteString.contains("test-b.invalid")))
     }
 
-    func testHistorySurvivesReopenAndUnavailableHTTPDoesNotDeclareNodeDead() {
+    func testHistorySurvivesReopenAndUnavailableHTTPDoesNotDeclareNodeDead() throws {
         let first = menu()
-        let node = snapshot.proxiesMap["Leaf-A"]!
+        let node = try XCTUnwrap(snapshot.proxiesMap["Leaf-A"])
         GlobalLeafBenchmarkPresentationStore.publish(.init(identity: .init(proxy: node), benchmarkURL: urlA,
-            sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 90),
-            publishedAt: Date(timeIntervalSinceNow: -48 * 3600)))
+                                                           sessionIdentifier: UUID(), rowState: .measured(displayName: "Leaf-A", delay: 90),
+                                                           publishedAt: Date(timeIntervalSinceNow: -48 * 3600)))
         XCTAssertEqual(text(first, "Leaf-A"), "90 ms *")
         refresh()
         let reopened = menu()
@@ -232,14 +232,14 @@ final class MenuIntegrationTests: XCTestCase {
         finish(reopened)
         XCTAssertEqual(text(reopened, "Leaf-A"), "90 ms *")
         XCTAssertNil(row(reopened, "Leaf-A").toolTip)
-        XCTAssertTrue((row(reopened, "Leaf-A").view as! ProxyItemView).delayLabel.toolTip!.contains(NSLocalizedString("Latest benchmark unavailable; showing the last measurement", comment: "")))
+        XCTAssertTrue(try XCTUnwrap((row(reopened, "Leaf-A").view as? ProxyItemView)?.delayLabel.toolTip?.contains(NSLocalizedString("Latest benchmark unavailable; showing the last measurement", comment: ""))))
         XCTAssertEqual(text(first, "Leaf-A"), text(reopened, "Leaf-A"))
     }
 
-    func testBenchmarkTooltipOnlyOnDelayAndClearedDuringRetest() {
+    func testBenchmarkTooltipOnlyOnDelayAndClearedDuringRetest() throws {
         let menu = menu()
         let item = row(menu, "Leaf-A")
-        let view = item.view as! ProxyItemView
+        let view = try XCTUnwrap(item.view as? ProxyItemView)
         XCTAssertNil(view.delayLabel.toolTip)
         configure("Leaf-A", urlA, 83)
         clickBenchmark(menu)
@@ -263,32 +263,32 @@ final class MenuIntegrationTests: XCTestCase {
         XCTAssertTrue(view.delayLabel.stringValue.contains("*"))
     }
 
-    func testAutomaticHeaderTooltipClearsWhileTestingAndAfterEvidenceReset() {
+    func testAutomaticHeaderTooltipClearsWhileTestingAndAfterEvidenceReset() throws {
         let automatic = menu("Automatic")
-        let group = snapshot.proxiesMap["Automatic"]!
+        let group = try XCTUnwrap(snapshot.proxiesMap["Automatic"])
         header = ProxyGroupMenuItemView(proxyGroup: group, targetProxy: "Leaf-A", hasLeftPadding: true)
         MihomoMenuURLProtocol.groupReply = .init(body: ["Leaf-A": 20, "Leaf-B": 80])
         clickBenchmark(automatic)
         finish(automatic)
-        XCTAssertNotNil(header!.delayLabel.toolTip)
-        XCTAssertNil(header!.toolTip)
-        for label in header!.effectView.subviews.compactMap({ $0 as? NSTextField }) where label !== header!.delayLabel {
+        XCTAssertNotNil(try XCTUnwrap(header?.delayLabel.toolTip))
+        XCTAssertNil(header?.toolTip)
+        for label in try XCTUnwrap(header?.effectView.subviews.compactMap { $0 as? NSTextField }) where label !== header!.delayLabel {
             XCTAssertNil(label.toolTip)
         }
         MihomoMenuURLProtocol.hold = true
         clickBenchmark(automatic)
         waitUntil("automatic retest held") { !MihomoMenuURLProtocol.held.isEmpty }
-        XCTAssertNil(header!.delayLabel.toolTip)
-        XCTAssertNil(header!.toolTip)
+        XCTAssertNil(header?.delayLabel.toolTip)
+        XCTAssertNil(header?.toolTip)
         MihomoMenuURLProtocol.hold = false
         MihomoMenuURLProtocol.releaseHeld()
         finish(automatic)
-        XCTAssertNotNil(header!.delayLabel.toolTip)
+        XCTAssertNotNil(try XCTUnwrap(header?.delayLabel.toolTip))
         AutomaticGroupBenchmarkPresentationStore.clearAll()
         setNow("Automatic", "Leaf-B")
         refresh()
-        XCTAssertNil(header!.delayLabel.toolTip)
-        XCTAssertEqual(header!.delayLabel.stringValue, "")
+        XCTAssertNil(header?.delayLabel.toolTip)
+        XCTAssertEqual(header?.delayLabel.stringValue, "")
     }
 
     func testTextOnlyMenuDoesNotRestoreWholeRowTooltip() {
@@ -318,9 +318,9 @@ final class MenuIntegrationTests: XCTestCase {
         XCTAssertEqual(text(menu("Selector-B"), "Leaf-A"), "180 ms")
     }
 
-    func testAutomaticActionRefreshesItsSnapshotAfterAnotherGroupCompletes() {
+    func testAutomaticActionRefreshesItsSnapshotAfterAnotherGroupCompletes() throws {
         MihomoMenuURLProtocol.topology["Other-Auto"] = ["name": "Other-Auto", "type": "Fallback",
-            "now": "Leaf-A", "all": ["Leaf-A"], "testUrl": urlA, "history": []]
+                                                        "now": "Leaf-A", "all": ["Leaf-A"], "testUrl": urlA, "history": []]
         refresh()
         let first = menu("Automatic")
         let second = menu("Other-Auto")
@@ -331,11 +331,11 @@ final class MenuIntegrationTests: XCTestCase {
         // Real Mihomo updates history after the first action, replacing the
         // snapshot referenced by every visible row. The second action must
         // update too, rather than retain a group whose weak enclosingResp dies.
-        var leaf = MihomoMenuURLProtocol.topology["Leaf-A"] as! [String: Any]
+        var leaf = try XCTUnwrap(MihomoMenuURLProtocol.topology["Leaf-A"] as? [String: Any])
         leaf["history"] = [["time": "2026-09-19T12:00:00.000+0000", "delay": 75]]
         MihomoMenuURLProtocol.topology["Leaf-A"] = leaf
         refresh()
-        let action = second.items[0] as! ProxyGroupSpeedTestMenuItem
+        let action = try XCTUnwrap(second.items[0] as? ProxyGroupSpeedTestMenuItem)
         XCTAssertTrue(action.proxyGroup === snapshot.proxiesMap["Other-Auto"])
         XCTAssertNotNil(action.proxyGroup.enclosingResp)
         MihomoMenuURLProtocol.groupReply = .init(body: ["Leaf-A": 140])
@@ -383,9 +383,9 @@ final class MenuIntegrationTests: XCTestCase {
         XCTAssertNil(secondSnapshot, "Removing the action must release its topology")
     }
 
-    func testBenchmarkActionIgnoresProgressDetachedAndWrongTypeUpdates() {
+    func testBenchmarkActionIgnoresProgressDetachedAndWrongTypeUpdates() throws {
         let original = actionSnapshot(id: "original")
-        let group = original.proxiesMap["Lifetime-Group"]!
+        let group = try XCTUnwrap(original.proxiesMap["Lifetime-Group"])
         let action = ProxyGroupSpeedTestMenuItem(group: group)
         AutomaticGroupBenchmarkPresentationStore.begin(group: group, sessionIdentifier: UUID())
         XCTAssertTrue(action.proxyGroup === group)
@@ -417,12 +417,12 @@ final class MenuIntegrationTests: XCTestCase {
         XCTAssertTrue(selected(menu, "Leaf-A")) // Selection is independent.
     }
 
-    func testSameNameReplacementInvalidatesVisibleMeasurement() {
+    func testSameNameReplacementInvalidatesVisibleMeasurement() throws {
         let menu = menu()
         configure("Leaf-A", urlA, 90)
         clickBenchmark(menu)
         finish(menu)
-        var leaf = MihomoMenuURLProtocol.topology["Leaf-A"] as! [String: Any]
+        var leaf = try XCTUnwrap(MihomoMenuURLProtocol.topology["Leaf-A"] as? [String: Any])
         leaf["id"] = "replacement-id"
         MihomoMenuURLProtocol.topology["Leaf-A"] = leaf
         refresh()
@@ -452,7 +452,7 @@ final class MenuIntegrationTests: XCTestCase {
         ]
     }
 
-    func testEmptyRegionsIgnoreFallbackLatencyButExplicitDirectStillMeasures() {
+    func testEmptyRegionsIgnoreFallbackLatencyButExplicitDirectStillMeasures() throws {
         addCompatible()
         MihomoMenuURLProtocol.topology["DIRECT"] = ["name": "DIRECT", "type": "Direct", "id": "direct-id", "history": []]
         for name in ["Singapore", "Taiwan"] {
@@ -461,9 +461,9 @@ final class MenuIntegrationTests: XCTestCase {
         MihomoMenuURLProtocol.topology["Selector"] = ["name": "Selector", "type": "Selector", "all": ["Singapore", "Taiwan", "DIRECT", "Leaf-A"], "now": "Singapore", "testUrl": urlA, "history": []]
         refresh()
         let first = menu()
-        let fallback = snapshot.proxiesMap["COMPATIBLE"]!
+        let fallback = try XCTUnwrap(snapshot.proxiesMap["COMPATIBLE"])
         GlobalLeafBenchmarkPresentationStore.publish(.init(identity: .init(proxy: fallback), benchmarkURL: urlA,
-            sessionIdentifier: UUID(), rowState: .measured(displayName: "COMPATIBLE", delay: 532)))
+                                                           sessionIdentifier: UUID(), rowState: .measured(displayName: "COMPATIBLE", delay: 532)))
         configure("DIRECT", urlA, 31)
         configure("Leaf-A", urlA, 90)
         clickBenchmark(first)
@@ -479,19 +479,19 @@ final class MenuIntegrationTests: XCTestCase {
         XCTAssertEqual(Set(measured), ["/proxies/DIRECT/delay", "/proxies/Leaf-A/delay"])
     }
 
-    func testExplicitRetestOfEmptyAutomaticGroupMakesNoDelayRequest() {
+    func testExplicitRetestOfEmptyAutomaticGroupMakesNoDelayRequest() throws {
         addCompatible()
         MihomoMenuURLProtocol.topology["Automatic"] = ["name": "Automatic", "type": "URLTest", "all": ["COMPATIBLE"], "now": "COMPATIBLE", "testUrl": urlB, "history": []]
         refresh()
         let automatic = menu("Automatic")
-        header = ProxyGroupMenuItemView(proxyGroup: snapshot.proxiesMap["Automatic"]!, targetProxy: "COMPATIBLE", hasLeftPadding: true)
+        header = try ProxyGroupMenuItemView(proxyGroup: XCTUnwrap(snapshot.proxiesMap["Automatic"]), targetProxy: "COMPATIBLE", hasLeftPadding: true)
         let before = MihomoMenuURLProtocol.requests.count
         clickBenchmark(automatic)
         XCTAssertNil(AppDelegate.shared.active)
         XCTAssertEqual(MihomoMenuURLProtocol.requests.count, before)
         XCTAssertEqual(automatic.items[0].title, NSLocalizedString("No testable proxy nodes", comment: ""))
         XCTAssertEqual(text(automatic, "COMPATIBLE"), NSLocalizedString("Direct fallback (no proxy nodes)", comment: ""))
-        let labels = header!.effectView.subviews.compactMap { ($0 as? NSTextField)?.stringValue }
+        let labels = try XCTUnwrap(header?.effectView.subviews.compactMap { ($0 as? NSTextField)?.stringValue })
         XCTAssertTrue(labels.contains(NSLocalizedString("Direct fallback (no proxy nodes)", comment: "")))
     }
 

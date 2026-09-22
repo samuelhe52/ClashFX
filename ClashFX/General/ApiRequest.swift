@@ -686,10 +686,10 @@ class ApiRequest {
     }
 
     static func getProxyDelayOutcome(proxyName: String,
-                                    benchmarkURL: String,
-                                    timeout: Int,
-                                    session: BenchmarkSession?,
-                                    callback: @escaping (ProxyDelayOutcome) -> Void) {
+                                     benchmarkURL: String,
+                                     timeout: Int,
+                                     session: BenchmarkSession?,
+                                     callback: @escaping (ProxyDelayOutcome) -> Void) {
         requestProxyDelay(
             path: "/proxies/\(proxyName.encoded)/delay",
             description: "proxy '\(proxyName)'",
@@ -712,11 +712,11 @@ class ApiRequest {
     }
 
     static func getProviderProxyDelayOutcome(providerName: ClashProviderName,
-                                            proxyName: ClashProxyName,
-                                            benchmarkURL: String,
-                                            timeout: Int,
-                                            session: BenchmarkSession?,
-                                            callback: @escaping (ProxyDelayOutcome) -> Void) {
+                                             proxyName: ClashProxyName,
+                                             benchmarkURL: String,
+                                             timeout: Int,
+                                             session: BenchmarkSession?,
+                                             callback: @escaping (ProxyDelayOutcome) -> Void) {
         requestProxyDelay(
             path: "/providers/proxies/\(providerName.encoded)/\(proxyName.encoded)/healthcheck",
             description: "provider '\(providerName)' proxy '\(proxyName)'",

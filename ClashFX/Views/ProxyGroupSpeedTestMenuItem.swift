@@ -67,7 +67,7 @@ class ProxyGroupSpeedTestMenuItem: NSMenuItem {
 
         super.init(title: NSLocalizedString("Benchmark", comment: ""), action: nil, keyEquivalent: "")
         NotificationCenter.default.addObserver(self, selector: #selector(proxyGroupUpdated(_:)),
-                                              name: .proxyUpdate(for: group.name), object: nil)
+                                               name: .proxyUpdate(for: group.name), object: nil)
         target = self
         action = #selector(healthCheck)
 
