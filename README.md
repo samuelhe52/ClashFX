@@ -22,7 +22,7 @@
 - DNS security with Fake-IP mode
 - gVisor userspace network stack
 - Apple Silicon native support
-- macOS 10.14+ compatibility (including macOS 15 Sequoia)
+- macOS 12.0+ compatibility
 
 ## 📥 Installation
 
@@ -51,7 +51,7 @@ Stable users: you're already on the recommended channel — nothing to change.
 
 ### Prerequisites
 
-- macOS 10.14 or later
+- macOS 12.0 or later
 - Xcode 15.0+
 - Python 3
 - Golang 1.21+

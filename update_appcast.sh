@@ -48,7 +48,7 @@ NEW_ITEM=$(cat <<EOF
       <pubDate>$CURRENT_DATE</pubDate>
       <sparkle:version>$VERSION</sparkle:version>
       <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
-      <sparkle:minimumSystemVersion>10.14</sparkle:minimumSystemVersion>
+      <sparkle:minimumSystemVersion>12.0</sparkle:minimumSystemVersion>
       <enclosure
         url="https://github.com/Clash-FX/ClashFX/releases/download/$VERSION/ClashFX.dmg"
         sparkle:version="$VERSION"

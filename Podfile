@@ -8,14 +8,14 @@ post_install do |installer|
         config.build_settings['SWIFT_VERSION'] = '5.0'
       end
 
-      # Keep the historical macOS 10.14 floor, including pods that request a newer target.
-      config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '10.14'
+      # Keep every dependency aligned with the application's supported macOS floor.
+      config.build_settings['MACOSX_DEPLOYMENT_TARGET'] = '12.0'
     end
   end
 end
 
 target 'ClashFX' do
-  platform :osx, '10.14'
+  platform :osx, '12.0'
   inhibit_all_warnings!
   use_modular_headers!
   pod 'LetsMove'

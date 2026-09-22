@@ -22,7 +22,7 @@
 - DNS 安全（Fake-IP 模式）
 - gVisor 使用者態網路堆疊
 - Apple Silicon 原生支援
-- 支援 macOS 10.14+（包含 macOS 15 Sequoia）
+- 支援 macOS 12.0+
 
 ## 📥 安裝
 
@@ -51,7 +51,7 @@ ClashFX 提供兩條更新通道,你可以自由選擇。
 
 ### 環境需求
 
-- macOS 10.14 或更高版本
+- macOS 12.0 或更高版本
 - Xcode 15.0+
 - Python 3
 - Golang 1.21+

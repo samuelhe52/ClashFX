@@ -1,16 +1,16 @@
-### Bug Fixes
+### Build Compatibility
 
-- **Keep the macOS 10.14 Minimum** — The app and CocoaPods stay on macOS 10.14. A newer deployment target requested by a pod, or set locally to satisfy a current Xcode, is not used for Lab builds.
+- **Raise the Minimum to macOS 12.0** — The app, helper, CocoaPods, bundled-core build, and future Sparkle entries now consistently target macOS 12.0, allowing current Xcode toolchains to build without local deployment-target overrides.
 
-Validation: The app target and Podfile both pin `MACOSX_DEPLOYMENT_TARGET` to 10.14. The local Pods project that had been raised to 14.6 was set back to 10.14. No running ClashFX process was replaced by this check.
+Validation: Project and dependency settings pin `MACOSX_DEPLOYMENT_TARGET` to 12.0, and the compatibility gate checks the packaged app against that declared floor. No running ClashFX process was replaced by this check.
 
 ---
 
-### 修复
+### 构建兼容性
 
-- **最低系统版本保持 macOS 10.14** — 应用和 CocoaPods 继续以 macOS 10.14 为最低版本。某个 Pod 要求更高版本，或为了适应当前 Xcode 而在本机调高的部署目标，都不会进入 Lab 构建。
+- **最低系统版本提升到 macOS 12.0** — 应用、helper、CocoaPods、内置核心构建及后续 Sparkle 更新条目现统一以 macOS 12.0 为最低版本，当前 Xcode 工具链无需本地部署目标覆盖即可构建。
 
-验证：应用 target 和 Podfile 都把 `MACOSX_DEPLOYMENT_TARGET` 固定为 10.14。本机曾被改成 14.6 的 Pods 工程已改回 10.14。这次检查没有替换正在运行的 ClashFX。
+验证：工程与依赖设置均将 `MACOSX_DEPLOYMENT_TARGET` 固定为 12.0，兼容性检查会据此验证打包应用。这次检查没有替换正在运行的 ClashFX。
 
 <!-- Previous release notes -->
 

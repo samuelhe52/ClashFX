@@ -20,6 +20,8 @@ def get_version():
 
 go_bin = "go"
 go_modfile = ""
+go_toolchain = "go1.26.0"
+macos_deployment_target = "12.0"
 
 
 def build_clash(version, build_time, arch):
@@ -30,11 +32,12 @@ def build_clash(version, build_time, arch):
     envs = os.environ.copy()
     envs.update(
         {
+            "GOTOOLCHAIN": go_toolchain,
             "GOOS": "darwin",
             "GOARCH": arch,
             "CGO_ENABLED": "1",
-            "CGO_LDFLAGS": "-mmacosx-version-min=10.14",
-            "CGO_CFLAGS": "-mmacosx-version-min=10.14",
+            "CGO_LDFLAGS": f"-mmacosx-version-min={macos_deployment_target}",
+            "CGO_CFLAGS": f"-mmacosx-version-min={macos_deployment_target}",
         }
     )
     subprocess.check_output(command, shell=True, env=envs)
@@ -49,19 +52,39 @@ def mergeLibs():
 
 
 def build_mihomo_bin(version, build_time, arch):
-    command = f"""
-{go_bin} build -modfile='{go_modfile}' -trimpath -tags with_gvisor -ldflags '-X "github.com/metacubex/mihomo/constant.Version={version}" \
--X "github.com/metacubex/mihomo/constant.BuildTime={build_time}"' \
--o mihomo_core_{arch} ./mihomo-bin/ """
+    linker_flags = " ".join(
+        [
+            f"-X github.com/metacubex/mihomo/constant.Version={version}",
+            f"-X github.com/metacubex/mihomo/constant.BuildTime={build_time}",
+            "-linkmode=external",
+            f"-extldflags=-mmacosx-version-min={macos_deployment_target}",
+        ]
+    )
+    command = [
+        go_bin,
+        "build",
+        f"-modfile={go_modfile}",
+        "-trimpath",
+        "-tags",
+        "with_gvisor",
+        "-ldflags",
+        linker_flags,
+        "-o",
+        f"mihomo_core_{arch}",
+        "./mihomo-bin/",
+    ]
     envs = os.environ.copy()
     envs.update(
         {
+            "GOTOOLCHAIN": go_toolchain,
             "GOOS": "darwin",
             "GOARCH": arch,
-            "CGO_ENABLED": "0",
+            "CGO_ENABLED": "1",
+            "CGO_LDFLAGS": f"-mmacosx-version-min={macos_deployment_target}",
+            "CGO_CFLAGS": f"-mmacosx-version-min={macos_deployment_target}",
         }
     )
-    subprocess.check_output(command, shell=True, env=envs)
+    subprocess.check_output(command, env=envs)
 
 
 def mergeMihomoBins():
@@ -102,6 +125,7 @@ def run():
         print("verify core workaround and Go tests")
         subprocess.check_output(
             [go_bin, "test", f"-modfile={go_modfile}", "./..."],
+            env=dict(os.environ, GOTOOLCHAIN=go_toolchain),
         )
         print("clean existing")
         subprocess.check_output("rm -f *Clash*.h *.a mihomo_core_*", shell=True)

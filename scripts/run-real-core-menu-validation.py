@@ -190,7 +190,7 @@ def main():
         command = ["xcodebuild", "-workspace", "ClashFX.xcworkspace", "-scheme", "ClashFX",
                    "-destination", "platform=macOS,arch=arm64",
                    "-only-testing:ClashFXTests/RealCoreMenuIntegrationTests", "test",
-                   "CODE_SIGNING_ALLOWED=NO", "MACOSX_DEPLOYMENT_TARGET=12.0"]
+                   "CODE_SIGNING_ALLOWED=NO"]
         with (directory / "tests.log").open("w") as log:
             result = subprocess.run(command, cwd=ROOT, env=test_env, stdout=log,
                                     stderr=subprocess.STDOUT, timeout=180)

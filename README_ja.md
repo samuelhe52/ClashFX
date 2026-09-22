@@ -22,7 +22,7 @@
 - Fake-IP モードによる DNS セキュリティ
 - gVisor ユーザースペースネットワークスタック
 - Apple Silicon ネイティブ対応
-- macOS 10.14+ 対応（macOS 15 Sequoia を含む）
+- macOS 12.0+ 対応
 
 ## 📥 インストール
 
@@ -51,7 +51,7 @@ ClashFX は 2 種類のアップデートチャンネルを提供します。お
 
 ### 前提条件
 
-- macOS 10.14 以降
+- macOS 12.0 以降
 - Xcode 15.0+
 - Python 3
 - Golang 1.21+
