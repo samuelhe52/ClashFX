@@ -5,6 +5,8 @@
 
 <h4 align="center">A rule-based macOS proxy client with Enhanced Mode (TUN) — powered by mihomo core.</h4>
 
+> **Fork notice:** This repository is a fork of [Clash-FX/ClashFX](https://github.com/Clash-FX/ClashFX).
+
 <div align="center">
 
 [English](README.md) | [简体中文](README_zh-CN.md) | [繁體中文](README_zh-TW.md) | [日本語](README_ja.md) | [Русский](README_ru.md)
